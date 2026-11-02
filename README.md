@@ -84,7 +84,9 @@ spendwise/
 │   │   ├── dashboard/
 │   │   │   ├── financial-dashboard.tsx # Month selector, summary cards, empty state (client)
 │   │   │   └── summary-card.tsx    # Reusable summary card (title, value, icon, tone)
-│   │   └── ui/                     # shadcn/ui components (button, card, dropdown-menu, select, sheet)
+│   │   ├── transactions/
+│   │   │   └── transactions-view.tsx # Filters, table/list, empty states, pagination (client)
+│   │   └── ui/                     # shadcn/ui components (button, card, dropdown-menu, input, select, sheet, table)
 │   ├── config/
 │   │   └── navigation.ts           # Routes, titles, descriptions, icons (single source)
 │   ├── data/
@@ -95,6 +97,7 @@ spendwise/
 │   │   │   ├── calculations.ts     # Pure income/expense/balance/summary functions
 │   │   │   ├── money.ts            # formatCurrency (centavos → "₱1,234.56")
 │   │   │   ├── months.ts           # Month keys, labels, Asia/Manila "today", reporting cutoff
+│   │   │   ├── transactions.ts     # Pure filter, sort, paginate, and amount display helpers
 │   │   │   ├── validation.ts       # Business rules TypeScript can't express
 │   │   │   └── *.test.ts           # Unit tests next to the code they test
 │   │   └── utils.ts                # Shared helpers (`cn` class-name merging)
@@ -113,15 +116,15 @@ Future folders (`src/stores`, `src/hooks`) will be added only when a milestone n
 
 ## Routes
 
-| Path            | Page                                   |
-| --------------- | -------------------------------------- |
-| `/`             | Redirects to `/dashboard` (temporary 307, set in `next.config.ts`) |
-| `/dashboard`    | Financial summary dashboard (SW-003)   |
-| `/transactions` | Transactions (placeholder)             |
-| `/accounts`     | Accounts (placeholder)                 |
-| `/categories`   | Categories (placeholder)               |
-| `/reports`      | Reports (placeholder)                  |
-| `/settings`     | Settings (placeholder)                 |
+| Path            | Page                                   | Milestone                                                   |
+| --------------- | -------------------------------------- | ----------------------------------------------------------- |
+| `/`             | Redirects to `/dashboard` (temporary 307, set in `next.config.ts`) | SW-002                          |
+| `/dashboard`    | Financial summary dashboard            | SW-003 (done)                                               |
+| `/transactions` | Transaction table with filters         | SW-004 (done), SW-005 (add/edit/delete)                     |
+| `/accounts`     | Accounts (placeholder)                 | SW-006                                                      |
+| `/categories`   | Categories (placeholder)               | SW-007                                                      |
+| `/reports`      | Reports (placeholder)                  | SW-008                                                      |
+| `/settings`     | Settings (placeholder)                 | SW-002 (theme, in the header menu), SW-008 (local data)     |
 
 All pages live in the `(app)` route group, so they share one layout and the sidebar and header are never duplicated. To add a section, add an entry to `src/config/navigation.ts` and a `page.tsx` under `src/app/(app)/`.
 
@@ -237,6 +240,72 @@ Rules:
 - **Empty month:** income, expenses, and net cash flow show `₱0.00`, a "No transactions in …" message appears, and the balance still carries forward opening balances and earlier transactions.
 - **Rendering:** the page shell is prerendered. The dashboard content renders per request (`connection()` inside `<Suspense>`), because "today" must not be frozen at build time. The server passes `today` to the client component as a prop, so the server and browser render identical HTML.
 
+## Transactions table (SW-004)
+
+`/transactions` shows the mock transactions in a spreadsheet-style table. It is read-only; adding, editing, and deleting arrive in SW-005.
+
+### Columns
+
+| Column      | Content                                                                                   |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| Date        | `Nov 2, 2026` (in a `<time>` element)                                                     |
+| Description | Wraps on narrow screens                                                                   |
+| Category    | Category name. Transfers have none and show "—" (read as "No category")                  |
+| Account     | Account name. Transfers show source → destination, e.g. `BPI Savings → GCash`             |
+| Type        | Income, Expense, or Transfer badge                                                        |
+| Amount      | Right-aligned: income `+₱18,500.00` (emerald), expense `-₱560.00` (rose), transfer `₱3,000.00` (neutral) |
+
+### Filtering
+
+All filters combine (AND), and every change returns to page 1.
+
+| Filter   | Behavior                                                                                         |
+| -------- | ------------------------------------------------------------------------------------------------ |
+| Search   | Case-insensitive match on description **or** category name; surrounding spaces are ignored      |
+| Month    | Defaults to the current month (Asia/Manila). Lists every month from the earliest data to today, plus "All months" |
+| Type     | All, Income, Expense, or Transfer                                                                |
+| Account  | Matches the transaction's account **or** a transfer's destination, so transfers in and out both appear |
+| Category | Grouped into Income and Expense. Transfers have no category, so they never match a specific category |
+
+**Clear filters** restores the defaults (current month, everything else unfiltered). It is disabled when the filters are already at their defaults, and it doesn't change the sort order.
+
+### Sorting
+
+Newest first (default), oldest first, highest amount, or lowest amount. Sorting applies to the filtered results.
+
+- Amounts are compared as integer centavos.
+- Ties are broken by date (newest first) and then by transaction id, so the order is always the same.
+- `sortTransactions` returns a sorted copy; the mock data array is never changed.
+
+### Pagination
+
+10 rows per page, shown as "Showing 11–20 of 30" with "Page 2 of 3". Previous and Next are disabled on the first and last pages. The page controls are hidden when everything fits on one page.
+
+### Empty states
+
+| Situation                                | Message                                  | Action            |
+| ---------------------------------------- | ---------------------------------------- | ----------------- |
+| No transactions at all                   | "No transactions yet"                    | None              |
+| Only the month is filtered and it's empty | "No transactions in September 2026"     | Show all months   |
+| A search with no matches                 | "No results for “…”"                     | Clear filters     |
+| Other filter combinations with no matches | "No transactions match these filters"   | Clear filters     |
+
+### Responsive behavior
+
+- **768px and wider:** the full table. Description, category, and account wrap so the table fits without horizontal scrolling, down to 768px and alongside the sidebar at 1024px.
+- **Below 768px:** a stacked list. Each item shows description and amount on the first line, then type, date, category, and account. No information is hidden.
+- **Filters:** one column on mobile, two from 640px, and three from 1280px.
+
+### Accessibility
+
+- A real `<table>` with column headers and a visually hidden caption describing the sort order and the visible range.
+- Labelled search box and filter selects, all usable with the keyboard.
+- The result count is announced through a polite live region.
+- Visually hidden "Filters" and "Results" headings for screen reader navigation.
+- Pagination is a labelled `<nav>`, with "Previous page" and "Next page" button labels.
+
+The filter, sort, and page state is local React state. Like the dashboard, the page computes "today" on the server per request so the default month matches between the server and the browser.
+
 ## Testing
 
 ```bash
@@ -255,6 +324,11 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
 - Currency formatting
 - Leap years and Asia/Manila date boundaries
 - Transaction validation, including `@ts-expect-error` checks that invalid transaction shapes don't compile
+- Transaction search (case-insensitive, description and category name)
+- Type, account (including transfer source and destination), category, and month filters, alone and combined
+- Sorting by date and amount, deterministic tie-breaking, and sorting filtered results
+- Empty results, pagination ranges and clamping, filter defaults
+- Immutability: filtering, sorting, and paging never change the source data
 
 ## Current features
 
@@ -269,34 +343,56 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Pure, unit-tested calculation and formatting utilities
   - Summary cards for income, expenses, net cash flow, and total balance
   - Month selector with an empty-month state
+- **SW-004:** transactions table
+  - Spreadsheet-style table on desktop, stacked list on mobile
+  - Search, filters by month, type, account, and category, and four sort orders
+  - Pagination and contextual empty states
 
 ## Development progress
 
 A story is checked only when its acceptance criteria and verification checks (typecheck, lint, unit tests, build, and browser checks where applicable) pass.
 
-- [x] **SW-001** — Project initialization (Next.js, TypeScript, Tailwind v4, shadcn/ui, Lucide, ESLint, starter page)
-- [x] **SW-002** — Responsive app shell and theme system (sidebar, header, mobile drawer, routes, light/dark/system theme)
-- [x] **SW-003** — Financial summary cards, mock data, and calculation utilities
-- [ ] **SW-004** — Spreadsheet-style transaction table
-- [ ] **SW-005** — Add and edit transactions (React Hook Form + Zod validation)
-- [ ] **SW-006** — Accounts management and per-account balances
-- [ ] **SW-007** — To be confirmed (the summary dashboard originally planned here was delivered in SW-003)
-- [ ] **SW-008** — `localStorage` persistence
+- [x] **SW-001** — Project setup (Next.js, TypeScript, Tailwind v4, shadcn/ui, Lucide, ESLint, starter page)
+- [x] **SW-002** — Application layout (sidebar, header, mobile drawer, routes, light/dark/system theme)
+- [x] **SW-003** — Financial dashboard and mock data (summary cards, month selector, calculation utilities, unit tests)
+- [x] **SW-004** — Transactions table (spreadsheet-style, read-only view with search, filters, sorting, and pagination)
+- [ ] **SW-005** — Transaction CRUD (add, edit, and delete transactions; React Hook Form + Zod)
+- [ ] **SW-006** — Account management (add, edit, and archive accounts; per-account balances)
+- [ ] **SW-007** — Category management (add, edit, and archive income and expense categories)
+- [ ] **SW-008** — Persistence and reports (`localStorage`, Reports page, Settings data management)
 
-> SW-004 to SW-008 are the proposed frontend roadmap. Their scope will be confirmed before each story starts. The Categories and Reports pages exist in the navigation but don't have their own milestone yet.
+### Milestone dependencies
 
-**Next milestone:** SW-004 — Spreadsheet-style transaction table.
+- **SW-004 → SW-005:** CRUD builds on the transactions table, which becomes the place to add, edit, and delete entries.
+- **SW-005 depends on accounts and categories.** Every transaction references an account (and a destination account for transfers). Income and expense transactions also reference a category. Until SW-006 and SW-007, SW-005 picks from the fixed mock accounts and categories.
+- **SW-006 and SW-007 must protect existing transactions.** An account or category that transactions still reference can't simply be deleted, or those transactions would point at nothing. It is archived instead (accounts already have `isActive`), or deletion is blocked. Account balances are always derived from transactions, never stored.
+- **SW-008 depends on SW-005 to SW-007:** persistence saves accounts, categories, and transactions together, and reports read all three.
+
+### Reports scope (SW-008)
+
+- Monthly summaries: income, expenses, and net cash flow per month, reusing the SW-003 calculation utilities.
+- Category breakdowns: totals per income and expense category for a selected period.
+- CSV export of transactions.
+
+### Settings scope
+
+- **SW-002 (done):** theme preference (Light, Dark, System). It's currently set from the header theme menu and saved in `localStorage`.
+- **SW-008:** local data management, such as exporting, importing, or clearing data stored in the browser.
+
+**Next milestone:** SW-005 — Transaction CRUD.
 
 ## Current limitations
 
-- The dashboard uses fixed mock data. Transactions can't be added, edited, or deleted yet, and the other five pages are still placeholders.
+- The dashboard and transactions table use fixed mock data. Transactions can't be added, edited, or deleted yet, and the Accounts, Categories, Reports, and Settings pages are still placeholders.
+- Filters, sort order, and page aren't kept in the URL. They reset when you leave the page or refresh, and a filtered view can't be bookmarked or shared.
+- On mobile the six filter controls stack vertically and take up a lot of space before the results.
+- Search matches descriptions and category names, not account names or amounts.
 - No data persistence apart from the theme choice. Nothing else is saved between sessions.
 - Mock data is fixed to July–November 2026. In later months, the dashboard will default to a month with no data. Every month from July 2026 onward stays selectable.
-- The dashboard's "today" uses Asia/Manila, but the header date (SW-002) uses the browser's time zone. Outside UTC+8 they can differ by a day around midnight.
 - Months are listed in a single dropdown. Once data spans many years, a year selector may be needed.
-- The header date is formatted in the browser after load, so it appears a moment after the rest of the header. It doesn't update if the page stays open past midnight.
+- The header date is formatted in the browser after load, so it appears a moment after the rest of the header. It shows the Asia/Manila date (matching the dashboard) in the browser's locale format, and doesn't update if the page stays open past midnight.
 - Chart color tokens (`--chart-1` to `--chart-5`) are still the shadcn/ui grayscale defaults and will be themed when charts are added.
-- Unit tests cover the finance logic only. There are no component or end-to-end tests in the repo; the SW-002 and SW-003 browser checks were run manually with Playwright.
+- Unit tests cover the finance logic only. There are no component or end-to-end tests in the repo; the SW-002 to SW-004 browser checks were run manually with Playwright.
 
 ## Planned backend integration
 

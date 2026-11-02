@@ -11,8 +11,8 @@ export default function SettingsPage() {
   return (
     <PagePlaceholder
       icon={SettingsIcon}
-      title="Settings are coming soon"
-      description="Preferences such as currency and display options will appear here. Use the theme menu in the header to switch between light and dark mode."
+      title="More settings are coming soon"
+      description="Theme preferences are available now from the theme menu in the header. Local data management, such as exporting, importing, and clearing your data, will appear here."
     />
   );
 }

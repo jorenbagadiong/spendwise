@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { MobileNavigation } from "@/components/layout/mobile-navigation";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { getNavigationItem } from "@/config/navigation";
+import { REPORTING_TIME_ZONE } from "@/lib/finance/months";
 
 export function AppHeader() {
   const pathname = usePathname();
@@ -39,12 +40,14 @@ const getDateSnapshot = () =>
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: REPORTING_TIME_ZONE,
   });
 const getServerDateSnapshot = () => null;
 
-// The date depends on the visitor's time zone and locale, which the server
-// doesn't know. useSyncExternalStore renders nothing on the server and the
-// formatted date in the browser, without a hydration mismatch.
+// Shows today's date in Asia/Manila, matching the dashboard's reporting date,
+// formatted in the visitor's locale. The locale is only known in the browser,
+// so useSyncExternalStore renders nothing on the server and the formatted
+// date in the browser, without a hydration mismatch.
 function CurrentDate() {
   const date = useSyncExternalStore(
     subscribe,
