@@ -1,8 +1,12 @@
 import { getTodayInManila } from "@/lib/finance/months";
 
-/** Saves text as a file through the browser's download mechanism. */
-export function downloadTextFile(filename: string, text: string) {
-  const blob = new Blob([text], { type: "application/json" });
+/**
+ * Saves text as a file through the browser's download mechanism. Runs
+ * entirely in the browser; nothing is uploaded. Defaults to JSON (backups);
+ * CSV exports pass "text/csv;charset=utf-8".
+ */
+export function downloadTextFile(filename: string, text: string, type = "application/json") {
+  const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

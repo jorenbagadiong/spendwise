@@ -14,9 +14,11 @@ import {
   ReceiptTextIcon,
   SearchIcon,
   SearchXIcon,
+  TriangleAlertIcon,
   type LucideIcon,
 } from "lucide-react";
 
+import { CsvExportMenu, type CsvExportOption, type CsvExportResult } from "@/components/export/csv-export-menu";
 import { DeleteTransactionDialog } from "@/components/transactions/delete-transaction-dialog";
 import { TransactionFormDialog } from "@/components/transactions/transaction-form-dialog";
 import { Button } from "@/components/ui/button";
@@ -49,9 +51,16 @@ import {
   getDefaultFilters,
   paginate,
   sortTransactions,
+  transactionTypeLabels,
   type TransactionFilters,
   type TransactionSort,
 } from "@/lib/finance/transactions";
+import {
+  buildTransactionsCsv,
+  selectTransactionsForExport,
+  transactionsCsvFilename,
+  type TransactionExportScope,
+} from "@/lib/export/transactions-csv";
 import { cn } from "@/lib/utils";
 import { useTransactionStore } from "@/stores/transaction-store-provider";
 import { getAccountLabel } from "@/lib/finance/accounts";
@@ -62,11 +71,7 @@ import type { IsoDate, Transaction } from "@/types/finance";
 
 const PAGE_SIZE = 10;
 
-const typeLabels: Record<Transaction["type"], string> = {
-  income: "Income",
-  expense: "Expense",
-  transfer: "Transfer",
-};
+const typeLabels = transactionTypeLabels;
 
 const typeStyles: Record<Transaction["type"], { badge: string; amount: string }> = {
   income: { badge: "bg-income/10 text-income", amount: "text-income" },
@@ -116,6 +121,7 @@ export function TransactionsView({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState<Transaction | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   // Filtering, sorting, and paging are pure functions in lib/finance.
   const matching = filterTransactions(transactions, filters, categories);
@@ -152,6 +158,40 @@ export function TransactionsView({
       .filter((c) => c.type === type)
       .map((c) => ({ value: c.id, label: getCategoryLabel(c) })),
   }));
+
+  const plural = (count: number) => (count === 1 ? "1 transaction" : `${count} transactions`);
+
+  // Exports read the current filters and sort but never change them, and
+  // ignore pagination: "Current results" is every matching row, not one page.
+  function exportOptionFor(scope: TransactionExportScope, count: number): CsvExportOption {
+    return {
+      id: scope,
+      label: scope === "filtered" ? "Current results" : "All transactions",
+      detail:
+        count === 0
+          ? scope === "filtered"
+            ? "No transactions match the current filters"
+            : "No transactions yet"
+          : scope === "filtered"
+            ? `${plural(count)} · current filters and sort, all pages`
+            : `${plural(count)} · every month, current sort`,
+      disabled: count === 0,
+      create: () => {
+        const rows = selectTransactionsForExport(scope, transactions, filters, sort, categories);
+        const filename = transactionsCsvFilename(scope, filters, today);
+        return {
+          filename,
+          csv: buildTransactionsCsv(rows, accounts, categories),
+          successMessage: `Downloaded ${plural(rows.length)} as ${filename}.`,
+        };
+      },
+    };
+  }
+
+  function handleExportResult(result: CsvExportResult) {
+    setNotice(result.ok ? result.message : null);
+    setExportError(result.ok ? null : result.message);
+  }
 
   function updateFilters(patch: Partial<TransactionFilters>) {
     setFilters((current) => ({ ...current, ...patch }));
@@ -215,11 +255,24 @@ export function TransactionsView({
             </p>
           )}
         </div>
-        <Button ref={addButtonRef} onClick={openAdd}>
-          <PlusIcon data-icon="inline-start" aria-hidden="true" />
-          Add transaction
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <CsvExportMenu
+            options={[exportOptionFor("filtered", matching.length), exportOptionFor("all", transactions.length)]}
+            onResult={handleExportResult}
+            footnote="CSV is for spreadsheets and can't be restored. For a restorable copy, use Settings → Data management."
+          />
+          <Button ref={addButtonRef} onClick={openAdd}>
+            <PlusIcon data-icon="inline-start" aria-hidden="true" />
+            Add transaction
+          </Button>
+        </div>
       </div>
+      {exportError && (
+        <p role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-card px-3 py-2 text-sm text-destructive">
+          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          {exportError}
+        </p>
+      )}
 
       <h2 className="sr-only">Filters</h2>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

@@ -9,6 +9,13 @@ import { getMonthKey } from "@/lib/finance/months";
 
 export const ALL = "all";
 
+/** Display names for transaction types (table, filters, CSV export). */
+export const transactionTypeLabels: Record<Transaction["type"], string> = {
+  income: "Income",
+  expense: "Expense",
+  transfer: "Transfer",
+};
+
 export type TransactionFilters = {
   /** Matches description or category name, case-insensitive. */
   search: string;

@@ -10,9 +10,11 @@ import {
   ChartColumnIcon,
   PercentIcon,
   ScaleIcon,
+  TriangleAlertIcon,
 } from "lucide-react";
 
 import { CategoryIconBadge } from "@/components/categories/category-icon-badge";
+import { CsvExportMenu, type CsvExportResult } from "@/components/export/csv-export-menu";
 import { SummaryCard, type SummaryTone } from "@/components/dashboard/summary-card";
 import {
   ExpenseBreakdownList,
@@ -24,6 +26,12 @@ import { ReportPeriodPicker } from "@/components/reports/report-period-picker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { categoryColorClasses } from "@/config/category-appearance";
+import {
+  buildAccountBreakdownCsv,
+  buildCategoryBreakdownCsv,
+  buildMonthlySummaryCsv,
+  reportCsvFilename,
+} from "@/lib/export/reports-csv";
 import { accountTypeLabels } from "@/lib/finance/accounts";
 import { formatCurrency } from "@/lib/finance/money";
 import { formatMonthLabel, getMonthKey } from "@/lib/finance/months";
@@ -47,7 +55,8 @@ type FinancialReportsProps = {
   today: IsoDate;
 };
 
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+const plural = (count: number, word: string, pluralWord = `${word}s`) =>
+  `${count} ${count === 1 ? word : pluralWord}`;
 
 /**
  * The Reports page. It reads the same shared stores as the dashboard and
@@ -61,6 +70,7 @@ export function FinancialReports({ today }: FinancialReportsProps) {
   const categories = useCategoryStore((state) => state.categories);
   const transactions = useTransactionStore((state) => state.transactions);
   const [selectedMonth, setSelectedMonth] = useState<MonthKey>(getMonthKey(today));
+  const [exportResult, setExportResult] = useState<CsvExportResult | null>(null);
 
   const months = useMemo(
     () => getReportMonths(accounts, transactions, today),
@@ -126,6 +136,51 @@ export function FinancialReports({ today }: FinancialReportsProps) {
     barClassName: "bg-primary",
   }));
 
+  const trendLabel = `${formatMonthLabel(trend[0].month)} to ${monthLabel}`;
+  const exportOptions = [
+    {
+      id: "monthly-summary",
+      label: "Monthly summary",
+      detail: `Income, expenses, net, and margin · ${trendLabel}`,
+      create: () => {
+        const filename = reportCsvFilename("monthly-summary", month);
+        return {
+          filename,
+          csv: buildMonthlySummaryCsv(transactions, month),
+          successMessage: `Downloaded the monthly summary (${trendLabel}) as ${filename}.`,
+        };
+      },
+    },
+    {
+      id: "expenses-by-category",
+      label: "Expenses by category",
+      detail: byCategory.rows.length > 0 ? `${plural(byCategory.rows.length, "category", "categories")} · ${monthLabel}` : `No expenses in ${monthLabel}`,
+      disabled: byCategory.rows.length === 0,
+      create: () => {
+        const filename = reportCsvFilename("expenses-by-category", month);
+        return {
+          filename,
+          csv: buildCategoryBreakdownCsv(transactions, categories, month),
+          successMessage: `Downloaded expenses by category for ${monthLabel} as ${filename}.`,
+        };
+      },
+    },
+    {
+      id: "expenses-by-account",
+      label: "Spending by account",
+      detail: byAccount.rows.length > 0 ? `${plural(byAccount.rows.length, "account")} · ${monthLabel}` : `No expenses in ${monthLabel}`,
+      disabled: byAccount.rows.length === 0,
+      create: () => {
+        const filename = reportCsvFilename("expenses-by-account", month);
+        return {
+          filename,
+          csv: buildAccountBreakdownCsv(transactions, accounts, month),
+          successMessage: `Downloaded spending by account for ${monthLabel} as ${filename}.`,
+        };
+      },
+    },
+  ];
+
   const noExpensesMessage =
     report.totalIncome > 0
       ? `No expenses in ${monthLabel}. Income this month was ${formatCurrency(report.totalIncome)}.`
@@ -142,8 +197,27 @@ export function FinancialReports({ today }: FinancialReportsProps) {
             {plural(report.transactionCount, "transaction")} in {monthLabel}, transfers included
           </p>
         </div>
-        <ReportPeriodPicker months={months} value={month} onChange={setSelectedMonth} />
+        <div className="flex flex-wrap items-end gap-2">
+          <ReportPeriodPicker months={months} value={month} onChange={setSelectedMonth} />
+          <CsvExportMenu
+            options={exportOptions}
+            onResult={setExportResult}
+            footnote="Amounts are in PHP. Transfers are excluded from every report."
+          />
+        </div>
       </div>
+
+      <div role="status">
+        {exportResult?.ok && (
+          <p className="text-sm text-muted-foreground">{exportResult.message}</p>
+        )}
+      </div>
+      {exportResult && !exportResult.ok && (
+        <p role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-card px-3 py-2 text-sm text-destructive">
+          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          {exportResult.message}
+        </p>
+      )}
 
       {futureCount > 0 && (
         <p className="flex items-start gap-2 rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
@@ -205,7 +279,7 @@ export function FinancialReports({ today }: FinancialReportsProps) {
       <div className="grid gap-6 lg:grid-cols-3">
         <ReportSection
           title="Income vs expenses"
-          description={`${formatMonthLabel(trend[0].month)} to ${monthLabel}. Select a month to view it.`}
+          description={`${trendLabel}. Select a month to view it.`}
           className="lg:col-span-2"
         >
           <MonthlyTrendChart points={trend} selectedMonth={month} onSelectMonth={setSelectedMonth} />

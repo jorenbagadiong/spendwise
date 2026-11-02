@@ -25,6 +25,8 @@ Financial data is saved in the browser's `localStorage` (SW-008A). No extra pack
 
 Reports (SW-008B) add no dependencies either. The trend chart is built from plain elements and Tailwind classes; see [why no chart library](#why-no-chart-library).
 
+CSV export (SW-008C) uses a small built-in CSV writer (`src/lib/export/csv.ts`) instead of a library; see [why no CSV library](#why-no-csv-library).
+
 Vitest 4 is used instead of Vitest 5 because Vitest 5 requires Node.js 22.12+, and this project supports Node.js 20.9+.
 
 ## Prerequisites
@@ -95,6 +97,8 @@ spendwise/
 │   │   │   ├── category-form-dialog.tsx # Add/edit category: name, type, icon, color
 │   │   │   ├── archive-category-dialog.tsx # Archive confirmation (alert dialog)
 │   │   │   └── category-icon-badge.tsx # Category icon on its color
+│   │   ├── export/
+│   │   │   └── csv-export-menu.tsx # "Export CSV" dropdown: builds and downloads a chosen dataset
 │   │   ├── persistence/
 │   │   │   ├── data-gate.tsx       # Loading state, recovery screen, shows pages once data is read
 │   │   │   └── persistence-banner.tsx # Warning when changes aren't saved (failure, unavailable, other tab)
@@ -127,17 +131,23 @@ spendwise/
 │   │   │   ├── categories.ts       # Category rules, icon/color lists, form schema, selectable categories, usage
 │   │   │   ├── calculations.ts     # Pure income/expense/balance/summary functions
 │   │   │   ├── reports.ts          # Pure report selectors: monthly report, trend, breakdowns, comparison
-│   │   │   ├── money.ts            # formatCurrency (centavos → "₱1,234.56"), compact axis labels ("₱40K")
+│   │   │   ├── money.ts            # formatCurrency ("₱1,234.56"), compact axis labels ("₱40K"), CSV decimals ("-1234.56")
 │   │   │   ├── months.ts           # Month keys, labels, shiftMonth, Asia/Manila "today", reporting cutoff
-│   │   │   ├── transactions.ts     # Pure filter, sort, paginate, and amount display helpers
+│   │   │   ├── transactions.ts     # Type labels; pure filter, sort, paginate, and amount display helpers
 │   │   │   ├── transaction-form.ts # Form values, Zod schema, pesos → centavos for the form
 │   │   │   ├── validation.ts       # Business rules TypeScript can't express
 │   │   │   └── *.test.ts           # Unit tests next to the code they test
+│   │   ├── export/
+│   │   │   ├── csv.ts              # CSV writer: escaping, CRLF, BOM, formula-injection defense, filenames
+│   │   │   ├── transactions-csv.ts # Transaction CSV schema, export scopes, filenames
+│   │   │   ├── reports-csv.ts      # Monthly summary and breakdown CSVs from the report selectors
+│   │   │   ├── csv-test-helpers.ts # Test-only RFC 4180 parser for round-trip checks
+│   │   │   └── *.test.ts
 │   │   ├── persistence/
 │   │   │   ├── snapshot.ts         # Storage key, schema version, snapshot type, Zod validation, integrity checks
 │   │   │   ├── storage.ts          # Safe localStorage access and error classification (quota, denied, unavailable)
 │   │   │   ├── controller.ts       # The single persistence boundary: load, seed, save, restore, clear, conflicts
-│   │   │   ├── download.ts         # File download helper and backup file names
+│   │   │   ├── download.ts         # File download helper (JSON backups and CSV exports) and backup file names
 │   │   │   └── *.test.ts
 │   │   ├── ids.ts                  # Sequential id helper ("acct-001", "txn-031")
 │   │   └── utils.ts                # Shared helpers (`cn` class-name merging)
@@ -171,10 +181,10 @@ A `src/hooks` folder will be added only when a milestone needs it.
 | --------------- | -------------------------------------- | ----------------------------------------------------------- |
 | `/`             | Redirects to `/dashboard` (temporary 307, set in `next.config.ts`) | SW-002                          |
 | `/dashboard`    | Financial summary dashboard            | SW-003 (done)                                               |
-| `/transactions` | Transaction table with add/edit/delete | SW-004 (done), SW-005 (done)                                |
+| `/transactions` | Transaction table with add/edit/delete and CSV export | SW-004 (done), SW-005 (done), SW-008C (done: CSV export) |
 | `/accounts`     | Account management                     | SW-006 (done)                                               |
 | `/categories`   | Category management                    | SW-007 (done)                                               |
-| `/reports`      | Financial reports                      | SW-008B (done), SW-008C (CSV export)                        |
+| `/reports`      | Financial reports and CSV export       | SW-008B (done), SW-008C (done: CSV export)                  |
 | `/settings`     | Settings: appearance and data management | SW-002 (theme, in the header menu), SW-008A (done: data management) |
 
 All pages live in the `(app)` route group, so they share one layout and the sidebar and header are never duplicated. To add a section, add an entry to `src/config/navigation.ts` and a `page.tsx` under `src/app/(app)/`.
@@ -708,7 +718,6 @@ Success notices say "Added" or "Updated", not "Saved", so they never claim durab
 - Date and number display formats, and the first day of the week.
 - Default account and default category for new transactions.
 - Account and profile settings, authentication, and cloud sync (these need the planned backend).
-- CSV export (SW-008C).
 
 ### Multiple tabs
 
@@ -817,6 +826,111 @@ Recharts was considered. Six months × two bars is easy to build with Tailwind, 
 - The transaction count is announced through a polite live region when the period changes.
 - No animations were added.
 
+## CSV export (SW-008C)
+
+Transactions and report tables can be downloaded as CSV files for Excel, Google Sheets, or Numbers. Files are generated entirely in the browser from the current store data and downloaded directly. Nothing is uploaded, saved, or changed.
+
+### Transactions page export
+
+An **Export CSV** button sits next to **Add transaction** (on mobile too). Its menu offers two clearly labeled scopes, each showing how many records the file will contain:
+
+| Scope               | Contents                                                                                                        |
+| ------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **Current results** | Every transaction matching the active search, month, type, account, and category filters, in the current sort order. **All pages**, not just the page on screen. |
+| **All transactions**| Every saved transaction, ignoring filters, in the current sort order.                                            |
+
+- Both scopes reuse the table's own `filterTransactions` and `sortTransactions` (SW-004), so the file always matches the table. Pagination is never applied.
+- A scope with no records is disabled and says why ("No transactions match the current filters").
+- Exporting doesn't change the filters, sort, or page.
+- The confirmation ("Downloaded 30 transactions as …") appears only after the file was generated and the download started. If generation fails, an error is shown instead and nothing changes.
+
+### Transaction CSV schema
+
+| Column        | Income              | Expense            | Transfer               |
+| ------------- | ------------------- | ------------------ | ---------------------- |
+| Date          | `YYYY-MM-DD`        | `YYYY-MM-DD`       | `YYYY-MM-DD`           |
+| Type          | `Income`            | `Expense`          | `Transfer`             |
+| Description   | as entered          | as entered         | as entered             |
+| Category      | category name       | category name      | *(empty)*              |
+| From Account  | *(empty)*           | source account     | source account         |
+| To Account    | receiving account   | *(empty)*          | destination account    |
+| Amount (PHP)  | positive (`35000.00`) | negative (`-125.50`) | positive (`5000.00`) |
+
+- Names are resolved from the current account and category stores, archived ones included (plain names, without the "(archived)" suffix the UI shows). Internal ids never appear.
+- Amounts are the transaction amounts only. Account balances and opening balances aren't exported.
+
+### Amount formatting
+
+- Converted from integer centavos with integer and string operations (`formatCentavosAsDecimal`): `125050` → `1250.50`, `-5` → `-0.05`. No floating-point division, so there are no rounding artifacts.
+- Exactly two decimals, a `.` decimal point, an optional leading `-`, and no currency symbol or thousands separators, so spreadsheets read them as numbers. The currency is in the column header: **Amount (PHP)**.
+
+### Reports page export
+
+An **Export CSV** button next to the reporting period offers three separate files for the selected period:
+
+| Option                   | File                                           | Columns                                                                                    |
+| ------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| **Monthly summary**      | `spendwise-monthly-summary-2026-11.csv`        | Month, Income (PHP), Expenses (PHP), Net Cash Flow (PHP), Cash Flow Margin (%)             |
+| **Expenses by category** | `spendwise-expenses-by-category-2026-11.csv`   | Month, Category, Status, Expenses (PHP), Share of Expenses (%), Transactions               |
+| **Spending by account**  | `spendwise-expenses-by-account-2026-11.csv`    | Month, Account, Account Type, Status, Expenses (PHP), Share of Expenses (%), Transactions  |
+
+- **Monthly summary** covers the same six months as the trend chart (the selected month and the five before it), including months with no activity. Cash flow margin is empty when a month has no income (N/A on the page).
+- **Breakdowns** list every category or account with expenses in the month, highest first, archived ones included (Status = `Archived`), and end with a **Total** row equal to the page's total expenses. Remember to exclude the Total row if you sum the column yourself.
+- All values come from the SW-008B selectors (`getMonthlyTrend`, `getCashFlowMargin`, `getExpensesByCategory`, `getExpensesByAccount`). Transfers are excluded, as on the page. Shares are written with two decimals, from the exact centavo totals.
+- Every row repeats its month, so the files stay unambiguous if combined. Breakdown options are disabled for a month with no expenses.
+
+### Filenames
+
+Built only from fixed words and app-generated dates (`csvFilename`), lowercased, limited to letters, digits, and hyphens:
+
+| Export                                   | Example                                        |
+| ---------------------------------------- | ---------------------------------------------- |
+| All transactions                         | `spendwise-transactions-2026-11-02.csv` (today, Asia/Manila) |
+| Current results with a month filter      | `spendwise-transactions-filtered-2026-11.csv`  |
+| Current results across all months        | `spendwise-transactions-filtered-2026-11-02.csv` |
+| Monthly summary / breakdowns             | `spendwise-monthly-summary-2026-11.csv`, `spendwise-expenses-by-category-2026-11.csv`, `spendwise-expenses-by-account-2026-11.csv` (selected month) |
+
+### Excel and Google Sheets compatibility
+
+- **UTF-8 with a byte order mark (BOM)**, so Excel shows `ñ`, `₱`, `–`, and emoji correctly instead of garbled characters. Google Sheets and Numbers ignore the BOM.
+- **CRLF line endings** and comma separators (RFC 4180).
+- Fields are quoted only when needed: values containing commas, double quotes, CR, or LF, or with leading or trailing spaces. Embedded double quotes are doubled (`"Lunch, ""special"" combo"`). Multi-line descriptions stay in one cell.
+- Excel may display `YYYY-MM-DD` dates in your system's date format. The underlying value is the same date.
+- In locales that use a comma as the decimal separator, Excel may open the file with every value in one column. Use **Data → From Text/CSV** and choose comma as the delimiter.
+
+### CSV injection protection
+
+Spreadsheets treat a cell starting with `=`, `+`, `-`, or `@` as a formula. A description such as `=HYPERLINK("http://evil.example","Click")` could become a live link or worse when the file is opened. Following the [OWASP CSV Injection](https://owasp.org/www-community/attacks/CSV_Injection) guidance, `neutralizeFormula` prefixes risky **text** cells with a single quote (`'`) so they're shown as text:
+
+- Applies to every user-controlled text cell: descriptions and account and category names (including in report exports).
+- Looks past leading whitespace and invisible characters (spaces, tab, CR, LF, non-breaking space, control characters, zero-width characters, stray BOM), because spreadsheets may skip them and still evaluate `" =1+1"` or `"\t=1+1"`. Cells starting with tab or CR are always prefixed.
+- Also catches full-width `＝ ＋ － ＠`.
+- **Number cells are never prefixed.** Amounts are generated by the app and checked against a strict decimal pattern (an unexpected value throws instead of being written), so `-125.50` stays a number.
+- Only the exported copy changes. The stored description is untouched, and the app and JSON backups keep the original text.
+- Trade-off: harmless text that starts with one of these characters (`-50 discount`, `+63 917…`) is also prefixed, and spreadsheets show the `'`.
+
+### Why no CSV library
+
+Writing CSV correctly takes about 60 lines: quoting, doubling quotes, CRLF, BOM. A library like Papa Parse is mostly a parser, and formula-injection defense would still need to be written separately. The built-in writer is fully unit-tested, including a round trip through a reference RFC 4180 parser.
+
+### CSV versus JSON backup
+
+|                     | CSV export                                         | JSON backup (Settings)                                       |
+| ------------------- | -------------------------------------------------- | ------------------------------------------------------------ |
+| Purpose             | Reading and analysis in a spreadsheet              | Restoring Spend Wise data                                     |
+| Contents            | Transactions or report tables, with names          | Every account, category, and transaction, with ids and schema version |
+| Opening balances, archive state, ids | Not included                       | Included                                                     |
+| Text                | Formula-like text prefixed with `'`                | Exact original text                                          |
+| Can be imported     | **No.** CSV files can't restore app data           | Yes, via **Import JSON backup**                               |
+
+The Transactions export menu repeats this: "CSV is for spreadsheets and can't be restored. For a restorable copy, use Settings → Data management."
+
+### Data integrity
+
+- Export functions are pure: they read the store arrays and return a string. Inputs are never mutated (tested with frozen data), and nothing is written to `localStorage` (verified in the browser by comparing the stored snapshot before and after exporting).
+- No export metadata is stored. Nothing is sent to any server, and errors are not logged, because they could contain descriptions or amounts.
+- Temporary object URLs are released after the download starts.
+
 ## Testing
 
 ```bash
@@ -871,6 +985,14 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Selectable months (including future-dated transactions), percentage and axis formatting, `shiftMonth`.
   - No mutation of source data (frozen inputs).
   - Recalculation after adding, editing, and deleting through the transaction store, after adding a transfer, after archiving, and after restoring a backup through the persistence controller.
+- CSV export (`src/lib/export/*.test.ts`):
+  - Escaping: commas, double quotes, CR/LF and multi-line text, leading/trailing spaces; CRLF line endings; BOM bytes; round trips through a reference RFC 4180 parser; Unicode (ñ, ₱, –, emoji, CJK).
+  - Formula injection: `=`, `+`, `-`, `@`, `HYPERLINK`/DDE payloads, leading whitespace and control-character bypasses, full-width characters; safe text left alone; number cells never prefixed and rejected if not plain decimals.
+  - Amounts: integer-centavo conversion, exactly two decimals, negatives, `0.1 + 0.2`, the largest allowed amount.
+  - Transaction schema: income, expense, and transfer rows; archived and missing references; no internal ids; dates; empty, single, and multiple transactions.
+  - Scopes: all records, filtered (search, month, type, account incl. transfer destination, category), sort order preserved, all 25 rows exported when the table shows 10 per page, no matches.
+  - Reports: six-month summary with zero months and N/A margins, category and account breakdowns with archived rows and Total rows, reconciliation with report and transaction totals, empty months, filenames.
+  - Source data never mutated.
 
 ## Current features
 
@@ -912,6 +1034,10 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Six-month income vs expenses chart with tooltips, texture as well as color, and a data table
   - Expenses by category and spending by account, archived records included
   - Month-over-month comparison with neutral wording
+- **SW-008C:** CSV export
+  - Transactions: export current filtered results (all pages, current sort) or all transactions, with record counts
+  - Reports: monthly summary, expenses by category, and spending by account for the selected period
+  - Excel-friendly UTF-8 CSV (BOM, CRLF, RFC 4180 quoting) with formula-injection protection
 
 ## Development progress
 
@@ -926,33 +1052,39 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - [x] **SW-007** — Category management (add, edit, archive, and restore categories; icons and colors; usage counts; shared category store)
 - [x] **SW-008A** — Local data persistence (`localStorage`, validated versioned snapshot, backup and restore, Settings data management, multiple-tab protection)
 - [x] **SW-008B** — Financial reports (reporting period, summary cards with cash flow margin, six-month trend, category and account breakdowns, month-over-month comparison)
-- [ ] **SW-008C** — CSV export
+- [x] **SW-008C** — CSV export (transactions: filtered or all; reports: monthly summary and expense breakdowns; formula-injection protection)
+- [ ] **SW-009** — Frontend MVP audit and stabilization
 
 ### Milestone dependencies
 
 - **SW-004 → SW-005:** CRUD builds on the transactions table, which becomes the place to add, edit, and delete entries.
 - **SW-005 depends on accounts and categories.** Every transaction references an account (and a destination account for transfers). Income and expense transactions also reference a category. Until SW-006 and SW-007, SW-005 picks from the fixed mock accounts and categories.
 - **SW-006 and SW-007 must protect existing transactions.** An account or category that transactions still reference can't simply be deleted, or those transactions would point at nothing. It is archived instead (accounts already have `isActive`), or deletion is blocked. Account balances are always derived from transactions, never stored.
-- **SW-008 depends on SW-005 to SW-007:** persistence saves accounts, categories, and transactions together, and reports read all three. SW-008 is split into 008A (persistence, done), 008B (reports), and 008C (CSV export).
+- **SW-008 depends on SW-005 to SW-007:** persistence saves accounts, categories, and transactions together, and reports read all three. SW-008 is split into 008A (persistence), 008B (reports), and 008C (CSV export), all done.
 
 ### Reports scope (SW-008B and SW-008C)
 
 - **SW-008B (done):** monthly summary and cash flow margin, six-month trend, expense breakdowns by category and by account, and month-over-month comparison, all reusing the SW-003 calculation utilities. Income-by-category breakdowns weren't part of the final scope.
-- **SW-008C:** CSV export of transactions.
+- **SW-008C (done):** CSV export of transactions (filtered or all) and of the three report tables. CSV is export-only; JSON backups remain the restore format.
 
 ### Settings scope
 
 - **SW-002 (done):** theme preference (Light, Dark, System). It's currently set from the header theme menu and saved in `localStorage`.
 - **SW-008A (done):** local data management: storage status, JSON backup export and import, and clear all data.
 
-**Next milestone:** SW-008C — CSV export.
+**Next milestone:** SW-009 — Frontend MVP audit and stabilization.
 
 ## Current limitations
 
 - Data is saved only in this browser's `localStorage` (see [Browser storage limitations](#browser-storage-limitations)): no sync between devices, deleted if site data is cleared, about 5 MB, not encrypted. Export backups regularly.
 - `localStorage` can't guarantee transactional concurrency across tabs. Conflicting saves are detected and blocked, but two saves at almost the same instant can't be fully prevented.
 - A conflicted tab can download its unsaved changes but can't merge them into the newer data. Merging is manual (re-enter or restore).
-- Backups are full replacements. There's no partial import or merge, and no CSV export yet (SW-008C).
+- Backups are full replacements. There's no partial import or merge.
+- CSV files are export-only and can't be imported or used to restore data. Use JSON backups for that.
+- Formula-injection protection prefixes harmless text that starts with `=`, `+`, `-`, or `@` (for example "-50 discount") with a visible `'` in spreadsheets.
+- CSV exports were checked with a standard CSV parser, byte-level checks, and the browser download. They haven't been opened in Excel, Google Sheets, or Numbers as part of this milestone's automated or manual checks.
+- Report CSVs cover one selected period (the monthly summary covers its six-month window). There's no multi-month breakdown export or XLSX/PDF output.
+- Breakdown CSVs end with a Total row. Exclude it when summing the column in a spreadsheet.
 - Page content waits for storage to be read, so each full page load briefly shows "Loading your saved data…".
 - Reports cover one calendar month at a time. There are no custom date ranges, quarters, or year-to-date totals, and the trend always shows six months.
 - Breakdowns are expense-only. Income by category isn't reported yet.

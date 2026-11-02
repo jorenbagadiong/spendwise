@@ -93,6 +93,20 @@ export function parsePesosToCentavos(
   return { ok: true, value: amount };
 }
 
+/**
+ * Plain signed decimal pesos for data files: 125050 → "1250.50",
+ * -5 → "-0.05". No currency symbol or thousands separators, always two
+ * decimals, built with integer operations so there's no float rounding.
+ */
+export function formatCentavosAsDecimal(amount: Centavos): string {
+  if (!Number.isSafeInteger(amount)) {
+    throw new RangeError(`Amount must be an integer number of centavos: ${amount}`);
+  }
+  const absolute = Math.abs(amount);
+  const decimal = `${Math.trunc(absolute / 100)}.${String(absolute % 100).padStart(2, "0")}`;
+  return amount < 0 ? `-${decimal}` : decimal;
+}
+
 /** Centavos to an editable form value: 125050 → "1250.50". */
 export function formatCentavosForInput(amount: Centavos): string {
   return `${Math.trunc(amount / 100)}.${String(amount % 100).padStart(2, "0")}`;
