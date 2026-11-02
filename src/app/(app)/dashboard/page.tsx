@@ -1,7 +1,10 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
-import { LayoutDashboardIcon } from "lucide-react";
+import { connection } from "next/server";
 
-import { PagePlaceholder } from "@/components/layout/page-placeholder";
+import { FinancialDashboard } from "@/components/dashboard/financial-dashboard";
+import { mockAccounts, mockTransactions } from "@/data/mock-finance";
+import { getTodayInManila } from "@/lib/finance/months";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -9,10 +12,24 @@ export const metadata: Metadata = {
 
 export default function DashboardPage() {
   return (
-    <PagePlaceholder
-      icon={LayoutDashboardIcon}
-      title="Dashboard is coming soon"
-      description="Summary cards for your income, expenses, and remaining money will appear here."
+    <Suspense>
+      <Dashboard />
+    </Suspense>
+  );
+}
+
+async function Dashboard() {
+  // "Today" must be read per request, not frozen into the build. connection()
+  // tells Next.js to render this part at request time; the rest of the page
+  // shell is still prerendered.
+  await connection();
+  const today = getTodayInManila();
+
+  return (
+    <FinancialDashboard
+      accounts={mockAccounts}
+      transactions={mockTransactions}
+      today={today}
     />
   );
 }

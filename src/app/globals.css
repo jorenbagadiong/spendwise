@@ -27,6 +27,8 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-income: var(--income);
+  --color-expense: var(--expense);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -72,6 +74,9 @@
   --border: oklch(0.91 0.01 252);
   --input: oklch(0.91 0.01 252);
   --ring: oklch(0.6 0.12 164);
+  /* Money in / money out */
+  --income: oklch(0.53 0.12 164);
+  --expense: oklch(0.58 0.2 17);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -108,6 +113,8 @@
   --border: oklch(1 0 0 / 9%);
   --input: oklch(1 0 0 / 13%);
   --ring: oklch(0.6 0.12 163);
+  --income: oklch(0.72 0.15 163);
+  --expense: oklch(0.72 0.16 15);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
