@@ -61,6 +61,16 @@ npm install
 
 `npm run dev` serves the landing page at `/` (SW-011); the app starts at `/dashboard`. Before SW-011, `/` redirected to `/dashboard`.
 
+### Deploying under a sub-path
+
+Set `NEXT_PUBLIC_BASE_PATH` to serve the app under a sub-path, for example `NEXT_PUBLIC_BASE_PATH=/spendwise` on Vercel. Leave it unset locally.
+
+- All routes, links, images, and icons get the prefix (`/spendwise/dashboard`, `/spendwise/icon.png`).
+- The bare domain root (`/`) redirects (307) to the base path.
+- Verified with a production build under `/spendwise`: the landing page, onboarding, navigation, Demo mode badge, reload persistence, logo, and icons all work, with no failed requests.
+- Under a base path, Next.js links the `icon.png` favicon but not `favicon.ico`, which is still served at `/spendwise/favicon.ico`. Browsers' automatic request for `/favicon.ico` at the domain root returns 404, which is harmless.
+- `localStorage` is per domain, not per path, so other apps on the same domain could read Spend Wise's keys.
+
 Add shadcn/ui components when a feature needs them:
 
 ```bash
