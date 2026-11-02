@@ -203,7 +203,7 @@ export function CategoriesView() {
           setNotice(
             action === "added"
               ? `Added “${category.name}”. It's available in the transaction form.`
-              : `Saved “${category.name}”.`,
+              : `Updated “${category.name}”.`,
           )
         }
       />

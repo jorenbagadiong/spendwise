@@ -48,10 +48,15 @@ export function TransactionStoreProvider({
  * Reads from the transaction store. Select the smallest piece you need
  * (e.g. `(s) => s.transactions`) so components only re-render when it changes.
  */
-export function useTransactionStore<T>(selector: (state: TransactionStore) => T): T {
+/** The store itself, for the persistence controller. */
+export function useTransactionStoreApi(): TransactionStoreApi {
   const store = useContext(TransactionStoreContext);
   if (!store) {
-    throw new Error("useTransactionStore must be used inside TransactionStoreProvider.");
+    throw new Error("Transaction store used outside TransactionStoreProvider.");
   }
-  return useStore(store, selector);
+  return store;
+}
+
+export function useTransactionStore<T>(selector: (state: TransactionStore) => T): T {
+  return useStore(useTransactionStoreApi(), selector);
 }

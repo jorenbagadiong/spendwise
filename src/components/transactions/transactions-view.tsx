@@ -101,10 +101,10 @@ export function TransactionsView({
   const searchId = useId();
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const defaultFilters = getDefaultFilters(today);
+  // The view can mount before saved accounts load (it's hidden until then),
+  // so the URL's account id is used as given; an unknown id just matches nothing.
   const [filters, setFilters] = useState<TransactionFilters>(() =>
-    initialAccountId && accounts.some((a) => a.id === initialAccountId)
-      ? { ...defaultFilters, accountId: initialAccountId, month: ALL }
-      : defaultFilters,
+    initialAccountId ? { ...defaultFilters, accountId: initialAccountId, month: ALL } : defaultFilters,
   );
   const [sort, setSort] = useState<TransactionSort>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
@@ -182,7 +182,7 @@ export function TransactionsView({
     // Filters are never reset automatically; say so if the record is hidden.
     const visible = filterTransactions([transaction], filters, categories).length > 0;
     setNotice(
-      `${action === "added" ? "Added" : "Saved"} “${transaction.description}”.` +
+      `${action === "added" ? "Added" : "Updated"} “${transaction.description}”.` +
         (visible ? "" : " It's hidden by the current filters."),
     );
   }

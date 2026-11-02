@@ -167,7 +167,7 @@ export function AccountsView({ today }: { today: IsoDate }) {
         account={editing}
         today={today}
         onSaved={(account, action) =>
-          setNotice(`${action === "added" ? "Added" : "Saved"} “${account.name}”.`)
+          setNotice(`${action === "added" ? "Added" : "Updated"} “${account.name}”.`)
         }
       />
       <ArchiveAccountDialog

@@ -1,31 +1,26 @@
 import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
-import { mockAccounts, mockCategories, mockTransactions } from "@/data/mock-finance";
-import { AccountStoreProvider } from "@/stores/account-store-provider";
-import { CategoryStoreProvider } from "@/stores/category-store-provider";
-import { TransactionStoreProvider } from "@/stores/transaction-store-provider";
+import { DataGate } from "@/components/persistence/data-gate";
+import { FinanceDataProvider } from "@/stores/finance-data-provider";
 
 // Shared shell for every page in the (app) route group. The parentheses keep
 // "(app)" out of the URL, so /dashboard maps to (app)/dashboard/page.tsx.
-// The account, category, and transaction stores live here so all pages share
-// them across client-side navigation. Transactions go innermost because their
-// store validates against accounts and categories.
+// FinanceDataProvider holds the account, category, and transaction stores
+// and saves them to localStorage; it lives here so every page shares them
+// across client-side navigation. DataGate shows page content only once the
+// saved data has been read.
 export default function AppLayout({ children }: LayoutProps<"/">) {
   return (
-    <AccountStoreProvider initialAccounts={mockAccounts}>
-      <CategoryStoreProvider initialCategories={mockCategories}>
-        <TransactionStoreProvider initialTransactions={mockTransactions}>
-          <div className="flex min-h-dvh">
-            <AppSidebar />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <AppHeader />
-              <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-                {children}
-              </main>
-            </div>
-          </div>
-        </TransactionStoreProvider>
-      </CategoryStoreProvider>
-    </AccountStoreProvider>
+    <FinanceDataProvider>
+      <div className="flex min-h-dvh">
+        <AppSidebar />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <AppHeader />
+          <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+            <DataGate>{children}</DataGate>
+          </main>
+        </div>
+      </div>
+    </FinanceDataProvider>
   );
 }

@@ -21,7 +21,7 @@ The project is built frontend-first: the UI and data handling run entirely in th
 | Forms         | [React Hook Form](https://react-hook-form.com) + `@hookform/resolvers` | 7.91.0 / 7.0.1 |
 | Validation    | [Zod](https://zod.dev)                                    | 4.6.7             |
 
-Planned for later milestones: `localStorage` persistence (SW-008).
+Financial data is saved in the browser's `localStorage` (SW-008A). No extra packages are used for persistence: it's built on the existing Zustand stores and Zod.
 
 Vitest 4 is used instead of Vitest 5 because Vitest 5 requires Node.js 22.12+, and this project supports Node.js 20.9+.
 
@@ -93,6 +93,11 @@ spendwise/
 │   │   │   ├── category-form-dialog.tsx # Add/edit category: name, type, icon, color
 │   │   │   ├── archive-category-dialog.tsx # Archive confirmation (alert dialog)
 │   │   │   └── category-icon-badge.tsx # Category icon on its color
+│   │   ├── persistence/
+│   │   │   ├── data-gate.tsx       # Loading state, recovery screen, shows pages once data is read
+│   │   │   └── persistence-banner.tsx # Warning when changes aren't saved (failure, unavailable, other tab)
+│   │   ├── settings/
+│   │   │   └── settings-view.tsx   # Settings: Appearance, Data management, Preferences
 │   │   ├── dashboard/
 │   │   │   ├── financial-dashboard.tsx # Month selector, summary cards, empty state (client)
 │   │   │   └── summary-card.tsx    # Reusable summary card (title, value, icon, tone)
@@ -119,6 +124,12 @@ spendwise/
 │   │   │   ├── transaction-form.ts # Form values, Zod schema, pesos → centavos for the form
 │   │   │   ├── validation.ts       # Business rules TypeScript can't express
 │   │   │   └── *.test.ts           # Unit tests next to the code they test
+│   │   ├── persistence/
+│   │   │   ├── snapshot.ts         # Storage key, schema version, snapshot type, Zod validation, integrity checks
+│   │   │   ├── storage.ts          # Safe localStorage access and error classification (quota, denied, unavailable)
+│   │   │   ├── controller.ts       # The single persistence boundary: load, seed, save, restore, clear, conflicts
+│   │   │   ├── download.ts         # File download helper and backup file names
+│   │   │   └── *.test.ts
 │   │   ├── ids.ts                  # Sequential id helper ("acct-001", "txn-031")
 │   │   └── utils.ts                # Shared helpers (`cn` class-name merging)
 │   ├── stores/
@@ -128,6 +139,7 @@ spendwise/
 │   │   ├── category-store.ts       # Zustand store factory: categories + add/update/archive/restore
 │   │   ├── category-store-provider.tsx # React context provider and useCategoryStore hook
 │   │   ├── category-store.test.ts
+│   │   ├── finance-data-provider.tsx # Creates the three stores + persistence controller (used by the layout)
 │   │   ├── transaction-store.ts    # Zustand store factory: transactions + add/update/delete
 │   │   ├── transaction-store-provider.tsx # React context provider and useTransactionStore hook
 │   │   └── transaction-store.test.ts
@@ -153,14 +165,15 @@ A `src/hooks` folder will be added only when a milestone needs it.
 | `/transactions` | Transaction table with add/edit/delete | SW-004 (done), SW-005 (done)                                |
 | `/accounts`     | Account management                     | SW-006 (done)                                               |
 | `/categories`   | Category management                    | SW-007 (done)                                               |
-| `/reports`      | Reports (placeholder)                  | SW-008                                                      |
-| `/settings`     | Settings (placeholder)                 | SW-002 (theme, in the header menu), SW-008 (local data)     |
+| `/reports`      | Reports (placeholder)                  | SW-008B (reports), SW-008C (CSV export)                     |
+| `/settings`     | Settings: appearance and data management | SW-002 (theme, in the header menu), SW-008A (done: data management) |
 
 All pages live in the `(app)` route group, so they share one layout and the sidebar and header are never duplicated. To add a section, add an entry to `src/config/navigation.ts` and a `page.tsx` under `src/app/(app)/`.
 
 ## Theme behavior
 
 - Three options in the header theme menu: **Light**, **Dark**, and **System** (default, follows the OS setting and reacts live when it changes).
+- Since SW-008A, the same menu also appears on the Settings page with the current choice shown ("Theme: Dark"). Both are the same `ThemeToggle` component reading the same `next-themes` state, so they always agree. The menu closes after a choice (Base UI keeps radio menus open by default, so `closeOnClick` is set).
 - The choice is saved in `localStorage` under the `theme` key and restored on the next visit.
 - No flash on load: `next-themes` injects a small blocking script that sets the `.dark` class on `<html>` before the first paint. `<html>` has `suppressHydrationWarning` because that class is added before React hydrates.
 - Colors are CSS variables in `src/app/globals.css` (`:root` for light, `.dark` for dark). Components use semantic classes such as `bg-background`, `text-primary`, and `bg-sidebar`, so the palette changes in one place.
@@ -343,6 +356,8 @@ The filter, sort, and page state is local React state. Like the dashboard, the p
 Transactions can be added, edited, and deleted on `/transactions`.
 
 > **Transactions are currently stored in memory and reset after a full browser refresh. Persistent localStorage support is planned for SW-008.**
+>
+> *Update (SW-008A):* transactions, accounts, and categories are now saved in `localStorage` and restored after a refresh. See [Data persistence (SW-008A)](#data-persistence-sw-008a).
 
 ### Add and edit
 
@@ -386,7 +401,7 @@ The form uses React Hook Form with a Zod schema (`createTransactionFormSchema` i
 ### State architecture
 
 ```
-(app)/layout.tsx
+(app)/layout.tsx → FinanceDataProvider (SW-008A; also creates the persistence controller)
 └── AccountStoreProvider              ← accounts store (SW-006)
     └── CategoryStoreProvider         ← categories store (SW-007)
         └── TransactionStoreProvider  ← transactions store; validates against accounts + categories
@@ -414,13 +429,13 @@ The form uses React Hook Form with a Zod schema (`createTransactionFormSchema` i
 
 - **Immutable updates:** every action creates a new array, so React and Zustand detect changes by reference.
 - **No stored totals:** income, expenses, net cash flow, and balances are always derived from the transactions with the SW-003 functions. Editing or deleting a transaction automatically updates every total, including the transfer effect on both accounts and historical month-end balances.
-- **No persistence:** no Zustand `persist` middleware, `localStorage`, or `sessionStorage` (planned for SW-008).
+- **No persistence in SW-005.** SW-008A added saving through a separate persistence controller rather than Zustand's `persist` middleware (see below).
 
 ## Account management (SW-006)
 
 `/accounts` manages the bank accounts, e-wallets, and cash wallets that transactions belong to.
 
-> Accounts are stored in memory like transactions and reset after a full browser refresh. Persistent localStorage support is planned for SW-008.
+> Accounts are stored in memory like transactions and reset after a full browser refresh. Persistent localStorage support is planned for SW-008. *Update (SW-008A): accounts are now saved and restored.*
 
 ### Accounts page
 
@@ -493,7 +508,7 @@ With Cache Components, Next.js 16 doesn't unmount pages when you navigate away. 
 
 `/categories` manages the income and expense categories that transactions use.
 
-> Categories are stored in memory like transactions and accounts, and reset after a full browser refresh. Persistent localStorage support is planned for SW-008.
+> Categories are stored in memory like transactions and accounts, and reset after a full browser refresh. Persistent localStorage support is planned for SW-008. *Update (SW-008A): categories are now saved and restored.*
 
 ### Categories page
 
@@ -565,6 +580,142 @@ With Cache Components, Next.js 16 doesn't unmount pages when you navigate away. 
 
 Results are `{ ok: true, category }` or `{ ok: false, error }`. Unknown ids return "This category no longer exists."
 
+## Data persistence (SW-008A)
+
+Accounts, categories, and transactions are saved in the browser's `localStorage` and restored on every visit. Nothing is sent anywhere.
+
+### Architecture
+
+```
+FinanceDataProvider (in the (app) layout)
+├── account, category, transaction stores   ← start empty
+└── persistence controller (src/lib/persistence/controller.ts)
+    ├── on mount:   read storage once → load, seed, or show recovery
+    ├── on change:  subscribed to the three stores → save one complete snapshot
+    ├── restore / clear: write storage first → update stores only if the write succeeded
+    └── "storage" event from other tabs → conflict state (writes stop)
+DataGate (around page content)
+└── loading state → recovery screen → or the page (+ PersistenceBanner when not saved)
+```
+
+- **One persistence boundary.** Store actions don't know about storage. The controller subscribes to the stores and saves after any successful change. Rejected actions (validation errors, unknown ids) don't change state, so nothing is written. A save is synchronous, so each change produces exactly one write and saving can never trigger another save.
+- **One key, one atomic write.** The full dataset is written as a single JSON string, so storage never holds half of a change. Every save is the complete, current state of all three stores, which the store actions already keep consistent (SW-007 validation).
+- **Plain-TypeScript controller.** It has no React code, so the unit tests drive it directly with a fake storage. The React provider only creates it, starts it in an effect, and listens for the `storage` event.
+
+### Storage key and schema
+
+Key: **`spendwise:financial-data:v1`** · schema version **1**
+
+```json
+{
+  "schemaVersion": 1,
+  "revision": "1f0c…",
+  "updatedAt": "2026-11-02T06:20:00.000Z",
+  "data": {
+    "accounts":     [{ "id": "bpi-savings", "name": "BPI Savings", "type": "bank", "openingBalance": 4500000, "openingDate": "2026-07-01", "isActive": true }],
+    "categories":   [{ "id": "food", "name": "Food", "type": "expense", "icon": "utensils", "color": "orange", "isActive": true }],
+    "transactions": [{ "id": "txn-001", "type": "expense", "amount": 245075, "date": "2026-07-03", "description": "SM Supermarket groceries", "accountId": "gcash", "categoryId": "groceries" }]
+  }
+}
+```
+
+- `revision` changes on every save. It's how a tab notices that another tab has saved since it last read.
+- **Not stored:** balances, dashboard totals, usage counts, form or dialog state, filters, or anything about the person. Everything derived is recalculated from the records. The theme preference stays where `next-themes` keeps it (`theme` key).
+
+### Initialization rules
+
+The server can't read `localStorage`, so the server HTML and the first browser render both show **"Loading your saved data…"**, with no hydration mismatch. Storage is read right after hydration. Page content is rendered but hidden until then. The stores are still empty at that point, so no demo or stale totals ever appear.
+
+| What's in storage                       | Result                                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Nothing (first visit)                   | Demo data is loaded **and saved**. This is the only time demo data is added.               |
+| A valid snapshot                        | It's restored exactly.                                                                     |
+| A valid **empty** snapshot              | Stays empty. Demo data is never re-added.                                                 |
+| Invalid JSON                            | Recovery screen. The stored text is untouched.                                            |
+| Unsupported schema version              | Recovery screen ("from a different version"). The stored text is untouched.               |
+| Invalid or inconsistent records         | Recovery screen with the list of problems. The stored text is untouched.                  |
+| Storage unavailable or blocked          | Demo data in memory only, with a warning that changes last only until the tab closes. Nothing is written. |
+
+The **recovery screen** offers:
+- **Download saved data**, which downloads the original stored text exactly as it was (`spendwise-unreadable-data-YYYY-MM-DD.json`).
+- **Try again.**
+- **Replace with demo data** or **Start with no data.** Each asks for confirmation first, because it overwrites the stored data.
+
+While the recovery screen is shown, nothing is saved.
+
+### Data integrity safeguards
+
+Every load and every backup import goes through `parseSnapshot` (`src/lib/persistence/snapshot.ts`):
+
+- **Shape** (strict Zod schemas, unknown fields rejected):
+  - Schema version and required fields.
+  - Account, category, and transaction ids.
+  - Real calendar dates.
+  - Integer centavos (positive for transactions, zero or more for opening balances).
+  - The income, expense, and transfer union (a transfer with a category is rejected).
+  - Known icons and colors, and name lengths.
+- **Integrity across records:**
+  - Duplicate ids.
+  - Duplicate account names, and duplicate category names within a type.
+  - Every transaction must reference existing accounts and categories, use a category of the matching type, have distinct transfer accounts, and not be dated before an account opened. This reuses `validateTransaction`.
+  - Archived accounts and categories are valid references.
+- **Nothing is repaired.** Invalid data is never trimmed, rounded, dropped, or coerced. It's rejected with a list of problems.
+
+### Saving and failures
+
+| Situation                         | What happens                                                                                       |
+| --------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Save succeeds                     | Settings shows "Saved in this browser" with the time. No banner.                                   |
+| Storage full (`QuotaExceededError`) or access denied | A banner says "Your latest changes aren't saved" and why. The change exists in this tab only; the next change retries. |
+| Storage unavailable at load       | Banner: "Changes are only kept in this tab." Restore and Clear are disabled.                      |
+| Another tab saved newer data      | Banner: "Data changed in another tab." Saving stops (see below).                                   |
+
+Success notices say "Added" or "Updated", not "Saved", so they never claim durability. The banner and the Settings status report the real save state. Every banner offers a backup download.
+
+### Backup and restore (Settings → Data management)
+
+- **Export JSON backup** downloads `spendwise-backup-YYYY-MM-DD.json`: a complete versioned snapshot of all accounts, categories, and transactions. Balances aren't included; they're recalculated after a restore.
+- **Import JSON backup:**
+  1. Choose a backup file.
+  2. The file is fully validated (same checks as loading). An invalid file is rejected with its problems listed, and nothing changes.
+  3. A confirmation shows what the backup contains and what it replaces, with a button to back up the current data first.
+  4. On confirm, the backup is written to storage first. Only if that succeeds are the stores replaced, all at once. If the write fails, the current data stays as it was. A backup is never partly imported.
+- **Clear all data** asks for confirmation, suggests exporting a backup first, and saves an empty dataset. Demo data isn't added back on the next visit. Restore a backup to recover.
+
+### Settings page
+
+`/settings` has three sections:
+
+| Section             | What it does                                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------ |
+| **Appearance**      | Theme selector (Light, Dark, System). It reuses the SW-002 `ThemeToggle`, so there's no separate theme state; it shows the current choice and stays in sync with the header menu. |
+| **Data management** | Storage status: saved (with time), not saved, unavailable, or changed in another tab, plus the record counts and storage key. When something's wrong, a **What to do** note gives recovery steps (`getStorageGuidance`). Also export JSON backup, import JSON backup (validated, confirmed), and clear all data (confirmed, no demo reseeding). |
+| **Preferences**     | Read-only. Currency is fixed to **Philippine peso (PHP, ₱)**, and the reporting time zone is fixed to **Asia/Manila**. There are no controls, because nothing here can be changed yet. |
+
+**Deferred preferences** (not implemented, and no placeholder controls are shown):
+
+- Currency switching or multiple currencies.
+- Reporting time zone selection.
+- Date and number display formats, and the first day of the week.
+- Default account and default category for new transactions.
+- Account and profile settings, authentication, and cloud sync (these need the planned backend).
+- CSV export (SW-008C).
+
+### Multiple tabs
+
+- Each save first checks that the stored `revision` is still the one this tab last read or wrote. If another tab has saved since, this tab **doesn't write**, so it can't overwrite newer data.
+- The browser's `storage` event also tells other tabs about a save as soon as it happens.
+- The stale tab shows "Data changed in another tab" and stops saving. Its unsaved changes stay on screen and can be downloaded ("Download this tab's data"). **Load latest data** replaces them with the saved data, after which saving resumes.
+- **Limitation:** `localStorage` has no transactions or locks across tabs. The check and the write are separate steps, so two tabs saving at almost exactly the same moment could still overwrite each other. The check makes this unlikely, not impossible. Real concurrency control needs a backend.
+
+### Browser storage limitations
+
+- Data lives **only in this browser on this device**. Other browsers, devices, and private windows don't see it.
+- Clearing site data (cookies and site data), or the browser evicting storage, **deletes it**. Export backups regularly.
+- `localStorage` is usually limited to about 5 MB per site. That's thousands of transactions, but not unlimited. Hitting the limit shows the "aren't saved" banner.
+- Some private modes or privacy settings block storage. The app then runs in memory with a warning.
+- Data isn't encrypted. Anyone with access to this browser profile can read it.
+
 ## Testing
 
 ```bash
@@ -601,6 +752,14 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
 - Category store: creating, editing (including archived categories), archiving, restoring, missing ids, unique ids
 - Transaction store validation at the action boundary: nonexistent, wrong-type, and archived categories; archived accounts; keeping an edited transaction's own archived category but not reassigning to another; transfers without categories
 - Selectable categories per type, usage counts after transaction changes (transfers excluded), renamed-category search, archived-category filtering
+- Persistence (`src/lib/persistence/*.test.ts`, using an in-memory fake storage):
+  - Loading: first-visit seeding, reload with valid data, empty dataset, no duplicate seeding.
+  - Saving: every transaction, account, and category mutation (including archive and restore); no writes for rejected actions.
+  - Load failures: invalid JSON, unsupported version, invalid amounts, broken references, duplicates.
+  - Storage failures: access denied, quota errors, unavailable storage.
+  - Backups: export, valid restore, atomic replacement on write failure, clear-all.
+  - Multiple tabs: conflict detection before writing and from the storage event, cleared-elsewhere data, resolving by reloading.
+  - Recovery guidance for each storage state (`guidance.test.ts`).
 
 ## Current features
 
@@ -631,6 +790,11 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Categories page with type filter, usage counts, add/edit (name, icon, color), archive, and restore
   - Shared category store used by the transaction table, filters, search, and form
   - Transaction store validates accounts and categories itself
+- **SW-008A:** local data persistence
+  - Accounts, categories, and transactions saved to `localStorage` and restored on every visit
+  - Demo data seeded only on the first visit; validated, versioned snapshot; recovery screen for unreadable data
+  - Settings page: Appearance (shared theme selector), Data management (status with recovery guidance, JSON backup export and import, clear all data), and read-only Preferences (PHP currency, Asia/Manila time zone)
+  - Save-failure warnings and multiple-tab conflict protection
 
 ## Development progress
 
@@ -643,38 +807,43 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - [x] **SW-005** — Transaction CRUD (add, edit, and delete transactions; React Hook Form + Zod; shared Zustand store)
 - [x] **SW-006** — Account management (add, edit, archive, and restore accounts; calculated balances; shared account store)
 - [x] **SW-007** — Category management (add, edit, archive, and restore categories; icons and colors; usage counts; shared category store)
-- [ ] **SW-008** — Persistence and reports (`localStorage`, Reports page, Settings data management)
+- [x] **SW-008A** — Local data persistence (`localStorage`, validated versioned snapshot, backup and restore, Settings data management, multiple-tab protection)
+- [ ] **SW-008B** — Financial reports (Reports page: monthly summaries, category breakdowns)
+- [ ] **SW-008C** — CSV export
 
 ### Milestone dependencies
 
 - **SW-004 → SW-005:** CRUD builds on the transactions table, which becomes the place to add, edit, and delete entries.
 - **SW-005 depends on accounts and categories.** Every transaction references an account (and a destination account for transfers). Income and expense transactions also reference a category. Until SW-006 and SW-007, SW-005 picks from the fixed mock accounts and categories.
 - **SW-006 and SW-007 must protect existing transactions.** An account or category that transactions still reference can't simply be deleted, or those transactions would point at nothing. It is archived instead (accounts already have `isActive`), or deletion is blocked. Account balances are always derived from transactions, never stored.
-- **SW-008 depends on SW-005 to SW-007:** persistence saves accounts, categories, and transactions together, and reports read all three.
+- **SW-008 depends on SW-005 to SW-007:** persistence saves accounts, categories, and transactions together, and reports read all three. SW-008 is split into 008A (persistence, done), 008B (reports), and 008C (CSV export).
 
-### Reports scope (SW-008)
+### Reports scope (SW-008B and SW-008C)
 
-- Monthly summaries: income, expenses, and net cash flow per month, reusing the SW-003 calculation utilities.
-- Category breakdowns: totals per income and expense category for a selected period.
-- CSV export of transactions.
+- **SW-008B:** monthly summaries (income, expenses, and net cash flow per month, reusing the SW-003 calculation utilities) and category breakdowns (totals per income and expense category for a selected period).
+- **SW-008C:** CSV export of transactions.
 
 ### Settings scope
 
 - **SW-002 (done):** theme preference (Light, Dark, System). It's currently set from the header theme menu and saved in `localStorage`.
-- **SW-008:** local data management, such as exporting, importing, or clearing data stored in the browser.
+- **SW-008A (done):** local data management: storage status, JSON backup export and import, and clear all data.
 
-**Next milestone:** SW-008 — Persistence and reports.
+**Next milestone:** SW-008B — Financial reports.
 
 ## Current limitations
 
-- **Transactions are currently stored in memory and reset after a full browser refresh. Persistent localStorage support is planned for SW-008.** The same applies to accounts. Client-side navigation between pages keeps both.
-- Categories are stored in memory like accounts and transactions, and reset on a full refresh. The Reports and Settings pages are still placeholders.
+- Data is saved only in this browser's `localStorage` (see [Browser storage limitations](#browser-storage-limitations)): no sync between devices, deleted if site data is cleared, about 5 MB, not encrypted. Export backups regularly.
+- `localStorage` can't guarantee transactional concurrency across tabs. Conflicting saves are detected and blocked, but two saves at almost the same instant can't be fully prevented.
+- A conflicted tab can download its unsaved changes but can't merge them into the newer data. Merging is manual (re-enter or restore).
+- Backups are full replacements. There's no partial import or merge, and no CSV export yet (SW-008C).
+- Page content waits for storage to be read, so each full page load briefly shows "Loading your saved data…".
+- The Reports page is still a placeholder (SW-008B).
 - Category icons and colors appear on the Categories page only. The transaction table shows category names without icons.
 - A category can't be merged into another, and its type can't change. To move transactions to another category, edit them one at a time.
 - An account's opening balance and date can't be corrected after creation. A future adjustment or reconciliation workflow is needed for that.
 - Account balances on the Accounts page are as of today. There is no per-account balance history or statement view.
 - Deletion is permanent and has no undo or audit history.
-- Success messages appear inline above the filters. There's no toast system.
+- Success messages appear inline. There's no toast system.
 - Filters, sort order, and page aren't kept in the URL, so a filtered view can't be bookmarked or shared. With Cache Components, Next.js keeps up to three recently visited pages mounted (hidden with React `<Activity>`), so filters survive moving between pages; a full refresh resets them.
 - On mobile the six filter controls stack vertically and take up a lot of space before the results.
 - Search matches descriptions and category names, not account names or amounts.
@@ -682,7 +851,7 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - Months are listed in a single dropdown. Once data spans many years, a year selector may be needed.
 - The header date is formatted in the browser after load, so it appears a moment after the rest of the header. It shows the Asia/Manila date (matching the dashboard) in the browser's locale format, and doesn't update if the page stays open past midnight.
 - Chart color tokens (`--chart-1` to `--chart-5`) are still the shadcn/ui grayscale defaults and will be themed when charts are added.
-- Unit tests cover the finance logic, form schemas, and stores. There are no component or end-to-end tests in the repo; the SW-002 to SW-007 browser checks were run manually with Playwright.
+- Unit tests cover the finance logic, form schemas, stores, and persistence. There are no component or end-to-end tests in the repo; the SW-002 to SW-008A browser checks were run manually with Playwright.
 
 ## Planned backend integration
 
