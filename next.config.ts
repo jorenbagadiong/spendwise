@@ -1,16 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   cacheComponents: true,
   partialPrefetching: true,
-  turbopack: {
-    rules: {
-      "*.css": {
-        loaders: ["@tailwindcss/turbopack"],
-        as: "*.css",
-      },
-    },
+  async redirects() {
+    return [
+      // The dashboard is the app's home. A config redirect runs before any
+      // rendering, so "/" never needs a page of its own.
+      { source: "/", destination: "/dashboard", permanent: false },
+    ];
   },
 };
 
