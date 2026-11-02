@@ -5,7 +5,7 @@ import { formatCompactCurrency } from "@/lib/finance/money";
 import { shiftMonth } from "@/lib/finance/months";
 import {
   countFutureDatedTransactions,
-  formatPercent,
+  formatPercentOf,
   getCashFlowMargin,
   getExpensesByAccount,
   getExpensesByCategory,
@@ -15,6 +15,7 @@ import {
   getNiceAxisMax,
   getReportMonths,
   getShare,
+  percentOf,
 } from "@/lib/finance/reports";
 import { createPersistenceController } from "@/lib/persistence/controller";
 import { createSnapshot, type FinancialData } from "@/lib/persistence/snapshot";
@@ -326,12 +327,28 @@ describe("countFutureDatedTransactions", () => {
 
 describe("formatting helpers", () => {
   it("formats percentages with one decimal and N/A for null", () => {
-    expect(formatPercent(60)).toBe("60.0%");
-    expect(formatPercent(35.0025)).toBe("35.0%");
-    expect(formatPercent(-108.3333)).toBe("-108.3%");
-    expect(formatPercent(12.5, { signed: true })).toBe("+12.5%");
-    expect(formatPercent(-0.01)).toBe("0.0%");
-    expect(formatPercent(null)).toBe("N/A");
+    expect(formatPercentOf(3_000_000, 5_000_000)).toBe("60.0%");
+    expect(formatPercentOf(700_050, 2_000_000)).toBe("35.0%");
+    expect(formatPercentOf(-3_250_000, 3_000_000)).toBe("-108.3%");
+    expect(formatPercentOf(125, 1_000, { signed: true })).toBe("+12.5%");
+    expect(formatPercentOf(-1, 1_000_000)).toBe("0.0%"); // never "-0.0%"
+    expect(formatPercentOf(0, 100, { signed: true })).toBe("0.0%"); // no "+" on zero
+    expect(formatPercentOf(5, 0)).toBe("N/A");
+  });
+
+  it("rounds percentages exactly from integer centavos (SW-009 regression)", () => {
+    // 1_624_950 / 3_000_000 = 54.165% exactly. As a float it's 54.16499…,
+    // so toFixed(2) gave "54.16"; exact rounding gives "54.17".
+    expect((1_624_950 * 100 / 3_000_000).toFixed(2)).toBe("54.16");
+    expect(percentOf(1_624_950, 3_000_000, 2)).toBe("54.17");
+    expect(percentOf(-1_624_950, 3_000_000, 2)).toBe("-54.17"); // half away from zero
+    expect(percentOf(1, 3, 2)).toBe("33.33");
+    expect(percentOf(2, 3, 2)).toBe("66.67");
+    expect(percentOf(1, 8, 1)).toBe("12.5");
+    expect(percentOf(1, 16, 1)).toBe("6.3"); // 6.25 → 6.3
+    expect(percentOf(5, 1_000, 0)).toBe("1"); // 0.5 → 1
+    expect(percentOf(99_999_999_999, 1, 2)).toBe("9999999999900.00"); // beyond float-safe products
+    expect(percentOf(0, 0)).toBeNull();
   });
 
   it("computes shares safely when the total is zero", () => {

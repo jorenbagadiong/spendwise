@@ -37,7 +37,7 @@ import { formatCurrency } from "@/lib/finance/money";
 import { formatMonthLabel, getMonthKey } from "@/lib/finance/months";
 import {
   countFutureDatedTransactions,
-  formatPercent,
+  formatPercentOf,
   getExpensesByAccount,
   getExpensesByCategory,
   getMonthlyReport,
@@ -255,7 +255,7 @@ export function FinancialReports({ today }: FinancialReportsProps) {
         />
         <SummaryCard
           title="Cash Flow Margin"
-          value={formatPercent(report.cashFlowMargin)}
+          value={formatPercentOf(report.netCashFlow, report.totalIncome)}
           description={
             report.cashFlowMargin === null
               ? "No income this month, so there's no margin to calculate"
@@ -299,7 +299,7 @@ export function FinancialReports({ today }: FinancialReportsProps) {
           description={`Total ${formatCurrency(byCategory.totalExpenses)} in ${monthLabel}`}
         >
           {categoryItems.length > 0 ? (
-            <ExpenseBreakdownList label={`Expenses by category, ${monthLabel}`} items={categoryItems} />
+            <ExpenseBreakdownList label={`Expenses by category, ${monthLabel}`} items={categoryItems} total={byCategory.totalExpenses} />
           ) : (
             <EmptySection message={noExpensesMessage} />
           )}
@@ -310,7 +310,7 @@ export function FinancialReports({ today }: FinancialReportsProps) {
           description={`Where ${monthLabel}'s expenses were paid from. Not account balances; transfers excluded.`}
         >
           {accountItems.length > 0 ? (
-            <ExpenseBreakdownList label={`Spending by account, ${monthLabel}`} items={accountItems} />
+            <ExpenseBreakdownList label={`Spending by account, ${monthLabel}`} items={accountItems} total={byAccount.totalExpenses} />
           ) : (
             <EmptySection message={noExpensesMessage} />
           )}

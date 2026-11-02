@@ -140,4 +140,21 @@
   html {
     @apply font-sans;
   }
+
+  /*
+   * Honor the OS "reduce motion" setting: dialogs, menus, and drawers appear
+   * without zooming or sliding. Durations become near-zero rather than none,
+   * so animation-end events (which Base UI waits for before unmounting
+   * closed popups) still fire.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }

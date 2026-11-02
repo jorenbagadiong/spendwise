@@ -2,10 +2,10 @@ import { csvFilename, toCsvDocument, type CsvColumn } from "@/lib/export/csv";
 import { accountTypeLabels } from "@/lib/finance/accounts";
 import { formatCentavosAsDecimal } from "@/lib/finance/money";
 import {
-  getCashFlowMargin,
   getExpensesByAccount,
   getExpensesByCategory,
   getMonthlyTrend,
+  percentOf,
 } from "@/lib/finance/reports";
 import type { Account, Category, Centavos, MonthKey, Transaction } from "@/types/finance";
 
@@ -15,18 +15,18 @@ import type { Account, Category, Centavos, MonthKey, Transaction } from "@/types
 // stay meaningful if files are combined.
 
 const money = (amount: Centavos) => formatCentavosAsDecimal(amount);
-/** Two decimals, from the unrounded percentage. Empty when undefined. */
-const percent = (value: number | null) => (value === null ? "" : value.toFixed(2));
+/** Two decimals, exact from the centavo amounts. Empty when the total is 0. */
+const percent = (part: Centavos, total: Centavos) => percentOf(part, total, 2) ?? "";
 
 // ---------------------------------------------------------------------------
-// Monthly summary: the six months shown in the Reports trend chart.
+// Monthly summary: the six months shown in the Reports trend chart. The
+// margin is net ÷ income (getCashFlowMargin's rule), formatted exactly.
 
 type MonthlySummaryRow = {
   month: MonthKey;
   income: Centavos;
   expenses: Centavos;
   netCashFlow: Centavos;
-  cashFlowMargin: number | null;
 };
 
 const MONTHLY_SUMMARY_COLUMNS: readonly CsvColumn<MonthlySummaryRow>[] = [
@@ -35,7 +35,7 @@ const MONTHLY_SUMMARY_COLUMNS: readonly CsvColumn<MonthlySummaryRow>[] = [
   { header: "Expenses (PHP)", kind: "number", value: (r) => money(r.expenses) },
   { header: "Net Cash Flow (PHP)", kind: "number", value: (r) => money(r.netCashFlow) },
   // Empty when the month has no income (shown as N/A on the page).
-  { header: "Cash Flow Margin (%)", kind: "number", value: (r) => percent(r.cashFlowMargin) },
+  { header: "Cash Flow Margin (%)", kind: "number", value: (r) => percent(r.netCashFlow, r.income) },
 ];
 
 export function getMonthlySummaryRows(
@@ -47,7 +47,6 @@ export function getMonthlySummaryRows(
     income: point.income,
     expenses: point.expenses,
     netCashFlow: point.netCashFlow,
-    cashFlowMargin: getCashFlowMargin(point.income, point.netCashFlow),
   }));
 }
 
@@ -67,7 +66,8 @@ type BreakdownCsvRow = {
   /** "Active" / "Archived"; empty on the Total row. */
   status: string;
   amount: Centavos;
-  share: number | null;
+  /** The period's total expenses, for the share column. */
+  totalExpenses: Centavos;
   transactionCount: number;
 };
 
@@ -80,7 +80,7 @@ function breakdownColumns(nameHeader: string, withAccountType: boolean): CsvColu
       : []),
     { header: "Status", kind: "text", value: (r) => r.status },
     { header: "Expenses (PHP)", kind: "number", value: (r) => money(r.amount) },
-    { header: "Share of Expenses (%)", kind: "number", value: (r) => percent(r.share) },
+    { header: "Share of Expenses (%)", kind: "number", value: (r) => percent(r.amount, r.totalExpenses) },
     { header: "Transactions", kind: "number", value: (r) => String(r.transactionCount) },
   ];
 }
@@ -92,7 +92,7 @@ function totalRow(month: MonthKey, rows: readonly BreakdownCsvRow[], totalExpens
     accountType: "",
     status: "",
     amount: totalExpenses,
-    share: totalExpenses === 0 ? null : 100,
+    totalExpenses,
     transactionCount: rows.reduce((sum, r) => sum + r.transactionCount, 0),
   };
 }
@@ -110,7 +110,7 @@ export function getCategoryBreakdownRows(
     name: r.name,
     status: status(r.isArchived),
     amount: r.amount,
-    share: r.percentage,
+    totalExpenses: breakdown.totalExpenses,
     transactionCount: r.transactionCount,
   }));
   return [...rows, totalRow(month, rows, breakdown.totalExpenses)];
@@ -128,7 +128,7 @@ export function getAccountBreakdownRows(
     accountType: r.account ? accountTypeLabels[r.account.type] : "",
     status: status(r.isArchived),
     amount: r.amount,
-    share: r.percentage,
+    totalExpenses: breakdown.totalExpenses,
     transactionCount: r.transactionCount,
   }));
   return [...rows, totalRow(month, rows, breakdown.totalExpenses)];

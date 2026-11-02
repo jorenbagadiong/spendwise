@@ -293,17 +293,43 @@ export function countFutureDatedTransactions(
   return transactions.filter((t) => t.date > today && getMonthKey(t.date) === month).length;
 }
 
+const big = (n: number) => BigInt(n);
+const absBig = (n: bigint) => (n < big(0) ? -n : n);
+
 /**
- * Formats a percentage with one decimal place, e.g. 12.345 → "12.3%".
- * null → "N/A". Rounding happens only here, at display time. Uses toFixed
- * (not Intl) so server and browser output match.
+ * `part` as a percentage of `total`, as a decimal string with `decimals`
+ * places, e.g. (1_624_950, 3_000_000, 2) → "54.17". Returns null when the
+ * total is 0. Computed with exact integer (BigInt) division and rounded
+ * half away from zero. Rounding the floating-point percentage instead
+ * would turn 54.165 into "54.16", because 54.165 isn't exactly
+ * representable as a float. Never returns "-0.00".
  */
-export function formatPercent(value: number | null, { signed = false } = {}): string {
+export function percentOf(part: Centavos, total: Centavos, decimals = 1): string | null {
+  if (total === 0) return null;
+  const numerator = big(part) * big(10) ** big(decimals + 2);
+  const denominator = big(total);
+  let quotient = numerator / denominator; // truncates toward zero
+  if (absBig(numerator % denominator) * big(2) >= absBig(denominator)) {
+    quotient += (numerator < big(0)) !== (denominator < big(0)) ? big(-1) : big(1);
+  }
+  const digits = absBig(quotient).toString().padStart(decimals + 1, "0");
+  const whole = decimals === 0 ? digits : `${digits.slice(0, -decimals)}.${digits.slice(-decimals)}`;
+  return quotient < big(0) ? `-${whole}` : whole;
+}
+
+/**
+ * Display form of percentOf: "54.2%", "+12.5%" with `signed`, or "N/A"
+ * when the total is 0 (the percentage is undefined).
+ */
+export function formatPercentOf(
+  part: Centavos,
+  total: Centavos,
+  { decimals = 1, signed = false }: { decimals?: number; signed?: boolean } = {},
+): string {
+  const value = percentOf(part, total, decimals);
   if (value === null) return "N/A";
-  const rounded = value.toFixed(1);
-  // Avoid "-0.0%" for tiny negative values.
-  if (Number(rounded) === 0) return "0.0%";
-  return signed && value > 0 ? `+${rounded}%` : `${rounded}%`;
+  const positive = !value.startsWith("-") && /[1-9]/.test(value);
+  return `${signed && positive ? "+" : ""}${value}%`;
 }
 
 /**

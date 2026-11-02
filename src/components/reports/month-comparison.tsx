@@ -3,7 +3,7 @@ import { ArrowDownIcon, ArrowUpIcon, MinusIcon } from "lucide-react";
 import { formatCurrency } from "@/lib/finance/money";
 import { formatMonthLabel } from "@/lib/finance/months";
 import {
-  formatPercent,
+  formatPercentOf,
   type MetricChange,
   type MonthOverMonthComparison,
 } from "@/lib/finance/reports";
@@ -21,7 +21,9 @@ function describeChange(change: MetricChange, previousLabel: string) {
   const amount = formatCurrency(Math.abs(change.difference));
   // A change from ₱0.00 has no percentage; the absolute difference stands alone.
   const percent =
-    change.percentChange === null ? "% N/A" : formatPercent(Math.abs(change.percentChange));
+    change.percentChange === null
+      ? "% N/A"
+      : formatPercentOf(Math.abs(change.difference), Math.abs(change.previous));
   return {
     Icon: change.difference > 0 ? ArrowUpIcon : ArrowDownIcon,
     text: `${direction} ${amount} (${percent})`,

@@ -307,24 +307,21 @@ export function SettingsView() {
           Preferences
         </h2>
         <dl className="divide-y divide-border rounded-xl bg-card text-card-foreground ring-1 ring-foreground/10">
-          <div className="flex flex-col gap-1 p-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-            <div className="min-w-0">
-              <dt className="font-medium">Currency</dt>
-              <dd className="text-sm text-muted-foreground">
-                Fixed for this version. Amounts are stored in whole centavos and shown as{" "}
-                <span className="tabular-nums">₱1,234.56</span>.
-              </dd>
-            </div>
-            <dd className="shrink-0 font-medium">Philippine peso (PHP, ₱)</dd>
+          {/* dl > div > dt/dd only (no extra wrapper), laid out with a grid. */}
+          <div className="grid gap-1 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-6">
+            <dt className="font-medium sm:col-start-1 sm:row-start-1">Currency</dt>
+            <dd className="text-sm text-muted-foreground sm:col-start-1 sm:row-start-2">
+              Fixed for this version. Amounts are stored in whole centavos and shown as{" "}
+              <span className="tabular-nums">₱1,234.56</span>.
+            </dd>
+            <dd className="font-medium sm:col-start-2 sm:row-span-2 sm:row-start-1">Philippine peso (PHP, ₱)</dd>
           </div>
-          <div className="flex flex-col gap-1 p-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-            <div className="min-w-0">
-              <dt className="font-medium">Reporting time zone</dt>
-              <dd className="text-sm text-muted-foreground">
-                Fixed. Decides &ldquo;today&rdquo; and which month a transaction belongs to.
-              </dd>
-            </div>
-            <dd className="shrink-0 font-medium">Asia/Manila (UTC+8)</dd>
+          <div className="grid gap-1 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-6">
+            <dt className="font-medium sm:col-start-1 sm:row-start-1">Reporting time zone</dt>
+            <dd className="text-sm text-muted-foreground sm:col-start-1 sm:row-start-2">
+              Fixed. Decides &ldquo;today&rdquo; and which month a transaction belongs to.
+            </dd>
+            <dd className="font-medium sm:col-start-2 sm:row-span-2 sm:row-start-1">Asia/Manila (UTC+8)</dd>
           </div>
         </dl>
         <p className="text-sm text-muted-foreground">

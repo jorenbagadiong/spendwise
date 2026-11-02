@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef } from "react";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,7 +24,10 @@ type DeleteTransactionDialogProps = {
   onOpenChange: (open: boolean) => void;
   /** Receives the removed record, or null if it was already gone. */
   onDeleted: (transaction: Transaction | null, description: string) => void;
-  /** Where focus goes after closing, since the deleted row's button is gone. */
+  /**
+   * Where focus goes after a delete, since the deleted row's button is gone.
+   * Cancel (or Escape) returns focus to the button that opened the dialog.
+   */
   finalFocus?: React.RefObject<HTMLElement | null>;
 };
 
@@ -34,10 +39,19 @@ export function DeleteTransactionDialog({
   finalFocus,
 }: DeleteTransactionDialogProps) {
   const deleteTransaction = useTransactionStore((state) => state.deleteTransaction);
+  // Set when Delete is pressed, so closing knows whether the row still exists.
+  const deletedRef = useRef(false);
 
   return (
     <AlertDialog open={open && transaction !== null} onOpenChange={onOpenChange}>
-      <AlertDialogContent finalFocus={finalFocus}>
+      <AlertDialogContent
+        finalFocus={() => {
+          const deleted = deletedRef.current;
+          deletedRef.current = false;
+          // `true` keeps Base UI's default: back to the element focused before opening.
+          return deleted ? (finalFocus?.current ?? true) : true;
+        }}
+      >
         {transaction && (
           <>
             <AlertDialogHeader>
@@ -57,6 +71,7 @@ export function DeleteTransactionDialog({
               <AlertDialogAction
                 variant="destructive"
                 onClick={() => {
+                  deletedRef.current = true;
                   onDeleted(deleteTransaction(transaction.id), transaction.description);
                   onOpenChange(false);
                 }}

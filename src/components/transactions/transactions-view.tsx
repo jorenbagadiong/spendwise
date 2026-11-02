@@ -221,6 +221,7 @@ export function TransactionsView({
   function handleSaved(transaction: Transaction, action: "added" | "updated") {
     // Filters are never reset automatically; say so if the record is hidden.
     const visible = filterTransactions([transaction], filters, categories).length > 0;
+    setExportError(null);
     setNotice(
       `${action === "added" ? "Added" : "Updated"} “${transaction.description}”.` +
         (visible ? "" : " It's hidden by the current filters."),
@@ -228,6 +229,7 @@ export function TransactionsView({
   }
 
   function handleDeleted(transaction: Transaction | null, description: string) {
+    setExportError(null);
     setNotice(
       transaction
         ? `Deleted “${description}”.`

@@ -17,6 +17,8 @@ The project is built frontend-first: the UI and data handling run entirely in th
 | Theming       | [next-themes](https://github.com/pacocoursey/next-themes) (light/dark/system) | 0.4.6 |
 | Linting       | ESLint 9 (flat config) + `eslint-config-next`             | 9.39.5            |
 | Unit tests    | [Vitest](https://vitest.dev) (Node environment)           | 4.1.12            |
+| Browser tests | [Playwright](https://playwright.dev) (`@playwright/test`, Chromium), dev-only | 1.64.1 |
+| Accessibility checks | [axe-core](https://github.com/dequelabs/axe-core), injected by the Playwright tests, dev-only | 4.14.0 |
 | Shared state  | [Zustand](https://zustand.docs.pmnd.rs) (in-memory transaction store) | 5.0.16 |
 | Forms         | [React Hook Form](https://react-hook-form.com) + `@hookform/resolvers` | 7.91.0 / 7.0.1 |
 | Validation    | [Zod](https://zod.dev)                                    | 4.6.7             |
@@ -53,6 +55,7 @@ npm install
 | `npm run typecheck` | Generate Next.js route types, then type-check with `tsc --noEmit`     |
 | `npm test`          | Run the unit tests once (Vitest)                                      |
 | `npm run test:watch`| Re-run unit tests on file changes                                     |
+| `npm run test:e2e`  | Run the Playwright browser tests against the production build (run `npm run build` first) |
 
 `npm run dev` redirects `/` to `/dashboard`.
 
@@ -130,6 +133,7 @@ spendwise/
 │   │   │   ├── accounts.ts         # Account name rules, account form schemas, selectable accounts
 │   │   │   ├── categories.ts       # Category rules, icon/color lists, form schema, selectable categories, usage
 │   │   │   ├── calculations.ts     # Pure income/expense/balance/summary functions
+│   │   │   ├── invariants.test.ts  # The 17 financial invariants on one ledger, across time zones
 │   │   │   ├── reports.ts          # Pure report selectors: monthly report, trend, breakdowns, comparison
 │   │   │   ├── money.ts            # formatCurrency ("₱1,234.56"), compact axis labels ("₱40K"), CSV decimals ("-1234.56")
 │   │   │   ├── months.ts           # Month keys, labels, shiftMonth, Asia/Manila "today", reporting cutoff
@@ -170,6 +174,16 @@ spendwise/
 ├── postcss.config.mjs              # Tailwind CSS v4 PostCSS plugin
 ├── tsconfig.json                   # TypeScript config (strict mode, `@/*` → `src/*`)
 ├── vitest.config.mts               # Vitest config (mirrors the `@/*` alias)
+├── playwright.config.ts            # Playwright config: Chromium, runs `next start -p 3100`
+├── e2e/                            # Browser tests for critical journeys (SW-009)
+│   ├── fixtures.ts                 # Deterministic Jan–Feb 2026 dataset, storage seeding, axe helper
+│   ├── first-visit.spec.ts         # Scenario A: demo seeding once, navigation, reload
+│   ├── transactions.spec.ts        # Scenario B: create/edit/delete each type, totals after every step
+│   ├── accounts-categories.spec.ts # Scenarios C–D: account and category lifecycles
+│   ├── backup-csv.spec.ts          # Scenarios E–F: JSON backup/restore, CSV exports and failures
+│   ├── persistence-failures.spec.ts # Scenario G: corrupt, unsupported, unavailable, full, stale-tab storage
+│   ├── accessibility.spec.ts       # axe WCAG 2.2 A/AA checks, focus trapping, Escape, reduced motion
+│   └── responsive.spec.ts          # Overflow and cut-off controls at 375/768/1280/1920px
 └── AGENTS.md                       # Next.js-generated notes for AI coding agents
 ```
 
@@ -771,9 +785,9 @@ All report math is in `src/lib/finance/reports.ts`, built on the SW-003 utilitie
 | `getMonthOverMonthComparison`  | Income, expense, and net changes against the immediately preceding month                |
 | `getReportMonths`              | Selectable reporting months                                                             |
 | `countFutureDatedTransactions` | Transactions in a month dated after today                                               |
-| `formatPercent`                | `35.0025` → `"35.0%"`; `null` → `"N/A"`                                                 |
+| `percentOf` / `formatPercentOf` | Exact percentage of two centavo amounts: `(1_624_950, 3_000_000, 2)` → `"54.17"`; display form `"54.2%"`, `"N/A"` when the total is 0 (SW-009) |
 
-1. **Integer centavos.** All totals are integer sums. A percentage is computed once from exact integer totals and rounded only when displayed.
+1. **Integer centavos.** All totals are integer sums. Displayed and exported percentages are computed from the two integer amounts with exact (BigInt) division and rounded half away from zero (SW-009 fix: rounding the floating-point value turned 54.165% into 54.16). The unrounded float is used only for bar widths and sorting.
 2. **Transfers are never income or expenses**, so they don't appear in any report total or breakdown.
 3. **Opening balances aren't income.** They aren't transactions, so reports never see them.
 4. **Archived accounts and categories stay in reports.** Historical expenses keep their rows, labeled "Archived". Names, icons, and colors come from the shared stores by id. If a record were missing (storage integrity checks prevent this), the row would still appear as "Unknown category/account" rather than being dropped.
@@ -931,12 +945,122 @@ The Transactions export menu repeats this: "CSV is for spreadsheets and can't be
 - No export metadata is stored. Nothing is sent to any server, and errors are not logged, because they could contain descriptions or amounts.
 - Temporary object URLs are released after the download starts.
 
+## SW-009 audit and stabilization
+
+SW-009 audited the complete frontend MVP (SW-001 to SW-008C) before backend work. It added no product features. It added a browser test suite and fixed the defects the audit confirmed.
+
+**Outcome: CONDITIONAL PASS.** No critical or high-severity defects remain. One medium-severity accessibility issue (D-2, light-mode text contrast) is open because it needs a design decision about theme colors.
+
+### Verified MVP capabilities
+
+Each of these is verified by an automated browser test against the production build, unless noted:
+
+- First visit seeds demo data exactly once; reloads read the saved data (same revision, no duplicates).
+- Income, expense, and transfer create/edit/delete, with the dashboard, Reports, account balances, and consolidated balance re-checked after every step (exact peso values). Changes persist across reloads.
+- Account and category lifecycles: create, rename, duplicate-name rejection, opening-date rule, archive (history and balances kept, not selectable for new transactions), restore.
+- JSON backup → change → restore returns the exact records. Invalid JSON and unsupported versions are rejected without touching storage.
+- CSV: filtered and all scopes, sort order kept, all pages exported (16 rows while the table shows 10), formula-injection protection, archived names, report CSVs equal to the Reports page, error path (no false success message).
+- Storage failures: corrupt JSON, unsupported version, broken references (recovery screen, stored value untouched); unavailable storage (in-memory mode with a warning); full quota (old data kept, warning, retry succeeds once space is back); stale tab (writes blocked, "Load latest data" resolves).
+- Accessibility: no structural axe violations on any page, dialog, menu, or the mobile drawer in either theme; focus trapping, Escape, and focus return; linked form errors; reduced motion; a keyboard-reachable chart alternative.
+- Layout: no horizontal overflow or cut-off controls at 375, 768, 1280, and 1920px; dialogs and menus fit a 375px screen.
+- No hydration warnings or console errors on any route in light or dark mode (checked once in `next dev`; not automated).
+
+### Defect register
+
+| ID  | Severity | Area | Defect | Status | Regression test |
+| --- | -------- | ---- | ------ | ------ | --------------- |
+| D-1 | Medium | Reports, CSV (`reports.ts`, `reports-csv.ts`, report components) | Percentages were rounded from floats, so exact halves could round down: a 54.165% margin exported as `54.16` (and 1-decimal displays had the same risk). This broke the SW-008B rule that percentages come from exact centavo totals. | **Fixed:** `percentOf`/`formatPercentOf` use exact integer division | `reports.test.ts` ("rounds percentages exactly…"), `e2e/backup-csv.spec.ts` (margin `54.17`) |
+| D-2 | Medium | Theme (light mode) | Colored text on a 10% tint of the same color is below WCAG AA 4.5:1: active nav link 4.27:1, Active/Income/Expense badges 4.1–4.3:1, tinted destructive buttons ("Clear all data", confirm Delete) 4.0:1 (also in dark mode). The light text tokens are only 4.5–4.9:1 even on white, so no tint level fixes it alone. | **Open:** needs a design decision (see below) | `e2e/accessibility.spec.ts` contrast test, marked `test.fail` until fixed |
+| D-3 | Low | Settings (`settings-view.tsx`) | The Preferences `<dl>` wrapped `dt`/`dd` in an extra `div` (invalid markup, flagged by axe as serious), so screen readers couldn't pair terms and values. | **Fixed:** valid `dl > div > dt/dd`, same layout via CSS grid | `e2e/accessibility.spec.ts` structural checks |
+| D-4 | Low | Global styles (`globals.css`) | The OS "reduce motion" setting was ignored; dialogs, menus, and the drawer always zoomed or slid. | **Fixed:** a `prefers-reduced-motion` rule shortens animations and transitions to near-zero | `e2e/accessibility.spec.ts` ("reduced-motion…") |
+| D-5 | Low | Transactions (`delete-transaction-dialog.tsx`) | Cancelling the delete confirmation (Cancel or Escape) sent focus to "Add transaction" instead of back to the row's Delete button (WCAG 2.4.3). | **Fixed:** focus goes to "Add transaction" only after an actual delete | `e2e/accessibility.spec.ts` ("dialogs trap focus…") |
+| D-6 | Low | Transactions (`transactions-view.tsx`) | A CSV export error stayed on screen after later successful saves or deletes. | **Fixed:** cleared by the next save or delete | `e2e/backup-csv.spec.ts` ("a failed CSV download…") |
+
+**D-2 options** (any one fixes it; each changes how the theme looks, so it needs approval):
+
+1. Neutral text on tinted chips and the active nav link (`text-foreground`), keeping the colored tint and icon as the identity cue.
+2. A darker shade of emerald and rose, used only for text on tints in light mode (adds theme tokens).
+3. Remove the tints from chips and buttons in light mode (text-only badges, outlined destructive buttons).
+
+### Risks and observations (not defects)
+
+| ID  | Area | Observation |
+| --- | ---- | ----------- |
+| R-1 | Storage capacity | A snapshot is about 155 bytes per transaction (20,000 transactions ≈ 3 MB). With the usual ~5 MB `localStorage` quota, the practical ceiling is roughly 30,000 transactions. When the quota is reached, saves fail visibly (tested) and nothing is lost, but the app can't grow past it without a backend. |
+| R-2 | Dependencies | `npm audit` reports 21 moderate/low advisories. The 6 in "production" dependencies all come through the `shadcn` CLI package (`deepmerge`, `minimatch` via `ts-morph`), which is used at build time only (the app imports only its CSS). npm's only automatic fix would downgrade shadcn from 4.23 to 1.0.0, so it was not applied. The other 15 are in ESLint tooling. |
+| R-3 | Bundle size | About 300 KB of compressed JavaScript per route (900–975 KB uncompressed). The largest app-specific part is Zod (~66 KB compressed), loaded on every route because the shared persistence provider validates snapshots. A possible later optimization is `zod/mini` or moving validation server-side with the backend. Not changed. |
+| R-4 | Dashboard months | The dashboard and the Transactions month filter list months only up to the current month, so a future-dated month is reachable only via "All months" there. Reports includes future months. This is a documented SW-003 rule, not changed. |
+| R-5 | Browser coverage | Automated and manual checks ran in Chromium only. Firefox and Safari (WebKit) weren't tested. |
+| R-6 | Focus guards | Base UI moves focus off its invisible focus guards asynchronously. Tab presses less than ~20 ms apart (faster than key repeat) can briefly land on a guard. Measured: no leak at 33 ms or slower. Library behavior; not changed. |
+
+### Financial invariants
+
+`src/lib/finance/invariants.test.ts` checks each invariant on one hand-calculated ledger. Deeper coverage lives in the calculation, store, report, and CSV tests, and in the browser tests.
+
+1. Authoritative amounts are integer centavos.
+2. Opening balances are not income.
+3. Income increases its receiving account.
+4. Expenses decrease their source account.
+5. Transfers debit one account and credit another.
+6. Transfers don't affect income, expenses, or net cash flow.
+7. Transfers don't change the consolidated balance.
+8. Editing a transaction applies its effect exactly once (repeating the same edit changes nothing).
+9. Deleting removes its effect exactly once (a second delete is a no-op).
+10. Archived accounts stay in historical and consolidated balances.
+11. Archived categories stay resolvable in historical transactions and reports.
+12. Months use calendar boundaries (last and first days tested).
+13. Historical month-end balances include all earlier transactions.
+14. Reports reconcile with dashboard totals.
+15. CSV exports reconcile with the report data.
+16. Negative calculated balances are supported.
+17. Dates don't shift with the machine's time zone (tested under UTC−12, UTC−8, UTC, UTC+8, and UTC+14).
+
+### Performance findings
+
+Measured in headless Chromium against the production build with generated datasets of 1,000, 5,000, and 20,000 transactions. The browser's long-task API reported nothing even for a deliberate 120 ms block, so it was replaced by measuring the largest gap between animation frames.
+
+| Measurement (20,000 transactions, 3 MB) | Result |
+| --- | --- |
+| Full page load to data ready (includes Zod validation of every record) | 354 ms |
+| Switching the table to "All months" | max frame gap 33 ms |
+| Typing in search (filter + sort on every keystroke) | max frame gap 17 ms |
+| Stepping Reports back 5 months | max frame gap 17 ms |
+| Save: `JSON.stringify` / `localStorage.setItem` | 6 ms / 23 ms |
+| Delete + save | max frame gap 83 ms, the same at 1k, 5k, and 20k (dialog transition, not data-dependent) |
+
+No data-dependent slowdowns were found, so no optimizations were added. Zustand selectors subscribe to single arrays, and report selectors are memoized per month (SW-008B).
+
+### Security and data integrity review
+
+- **Rendering:** no `dangerouslySetInnerHTML`, `innerHTML`, `eval`, or `new Function`; all user text renders through React escaping.
+- **Network:** no `fetch`, `XMLHttpRequest`, beacons, analytics, or other outbound calls; no environment variables or secrets in client code.
+- **Logging:** no `console` calls in application code.
+- **Storage:** imported and stored JSON is fully validated (Zod schema plus integrity checks). Corrupt or unsupported data is never overwritten automatically, restores are atomic (storage first, then the stores), and stale tabs can't overwrite newer data. All of this is covered by unit and browser tests.
+- **CSV:** formula injection is neutralized (SW-008C), including in names, verified end to end.
+- **Limitations of browser-only storage:** data isn't encrypted and is readable by anyone with access to the browser profile or by scripts on the same origin. It's limited to about 5 MB, isn't synced, and is lost when site data is cleared. Authentication and encryption are out of scope until a backend exists.
+
+### Backend readiness
+
+**Ready to start SW-010**, with D-2 tracked separately.
+
+- **Data model:** typed discriminated-union records with string ids, integer centavos, and ISO calendar dates map directly onto database rows. Snapshot schema version 1 gives a defined import format for migrating existing local data.
+- **One persistence boundary:** stores never touch storage; `createPersistenceController` loads, saves, restores, and detects conflicts. A server-backed controller can replace it without changing pages or stores. Its revision check is already the optimistic-concurrency pattern an API needs.
+- **Validation is shared and pure** (`validateTransaction`, `checkDataIntegrity`, Zod schemas), so the same rules can run on the server.
+- **Calculations are pure functions** that can run server-side or stay client-side over fetched data.
+- **Gaps a backend must close:** no user or auth model; ids are sequential per device (`txn-031`), so they'd collide across devices (switch to server-issued ids or UUIDs); edits overwrite with no history; the whole dataset is saved at once, which a backend should replace with per-record writes.
+
 ## Testing
 
 ```bash
-npm test             # run once
-npm run test:watch   # watch mode
+npm test             # unit tests (Vitest), run once
+npm run test:watch   # unit tests in watch mode
+npm run build        # production build (needed before browser tests)
+npm run test:e2e     # browser tests (Playwright, Chromium)
 ```
+
+**Browser tests (SW-009)** in `e2e/` run against the production build: Playwright starts `next start -p 3100`, or reuses a server already on that port. Each test seeds its own deterministic dataset (January–February 2026) into `localStorage` before the app loads, so results don't depend on the demo data or today's date. Tests use roles, labels, and visible text, not CSS classes. Accessibility checks inject the installed `axe-core` and run its WCAG 2.2 A/AA rules. The first run needs a Playwright Chromium (`npx playwright install chromium`, about 170 MB, stored outside the repo).
+
+Why Playwright: earlier milestones' browser checks were one-off scripts. A committed suite makes the critical journeys repeatable. The cost is a dev-only dependency that never ships to users. Component tests (jsdom/React Testing Library) weren't added, because the browser tests cover the same integration paths against the real build without a second test environment.
 
 Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fixtures. They cover:
 
@@ -1038,6 +1162,10 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Transactions: export current filtered results (all pages, current sort) or all transactions, with record counts
   - Reports: monthly summary, expenses by category, and spending by account for the selected period
   - Excel-friendly UTF-8 CSV (BOM, CRLF, RFC 4180 quoting) with formula-injection protection
+- **SW-009:** frontend MVP audit and stabilization
+  - Playwright browser tests for every critical journey and storage-failure case, plus axe accessibility and responsive checks
+  - Financial invariant suite, including time-zone independence
+  - Fixes: exact percentage rounding, Settings definition-list markup, reduced-motion support, focus return after cancelling a delete, stale CSV error message
 
 ## Development progress
 
@@ -1053,7 +1181,8 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - [x] **SW-008A** — Local data persistence (`localStorage`, validated versioned snapshot, backup and restore, Settings data management, multiple-tab protection)
 - [x] **SW-008B** — Financial reports (reporting period, summary cards with cash flow margin, six-month trend, category and account breakdowns, month-over-month comparison)
 - [x] **SW-008C** — CSV export (transactions: filtered or all; reports: monthly summary and expense breakdowns; formula-injection protection)
-- [ ] **SW-009** — Frontend MVP audit and stabilization
+- [x] **SW-009** — Frontend MVP audit and stabilization (conditional pass: browser test suite, 6 defects found, 5 fixed, D-2 contrast open pending a design decision)
+- [ ] **SW-010** — Backend foundation (proposed)
 
 ### Milestone dependencies
 
@@ -1072,7 +1201,7 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - **SW-002 (done):** theme preference (Light, Dark, System). It's currently set from the header theme menu and saved in `localStorage`.
 - **SW-008A (done):** local data management: storage status, JSON backup export and import, and clear all data.
 
-**Next milestone:** SW-009 — Frontend MVP audit and stabilization.
+**Next milestone:** SW-010 — Backend foundation (proposed; see [Backend readiness](#backend-readiness)). Resolving D-2 needs a design decision first.
 
 ## Current limitations
 
@@ -1088,7 +1217,10 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - Page content waits for storage to be read, so each full page load briefly shows "Loading your saved data…".
 - Reports cover one calendar month at a time. There are no custom date ranges, quarters, or year-to-date totals, and the trend always shows six months.
 - Breakdowns are expense-only. Income by category isn't reported yet.
-- Percentages are rounded to one decimal independently, so a breakdown may total 99.9% or 100.1%.
+- Percentages are rounded to one decimal independently (exactly, from centavos), so a breakdown may total 99.9% or 100.1%.
+- Light-mode text on tinted chips, the active nav link, and tinted destructive buttons is below WCAG AA contrast (D-2, open).
+- `localStorage` holds roughly 30,000 transactions before the browser quota is reached (R-1).
+- Verified in Chromium only (R-5).
 - The trend chart's tooltip appears on hover or keyboard focus. On touch screens, tapping a month selects it; exact values are in the summary cards and the data table.
 - The reporting period is local page state. It isn't in the URL, and it isn't shared with the dashboard's month selector.
 - Category icons and colors appear on the Categories page only. The transaction table shows category names without icons.
@@ -1104,7 +1236,7 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - Months are listed in a single dropdown. Once data spans many years, a year selector may be needed.
 - The header date is formatted in the browser after load, so it appears a moment after the rest of the header. It shows the Asia/Manila date (matching the dashboard) in the browser's locale format, and doesn't update if the page stays open past midnight.
 - Chart color tokens (`--chart-1` to `--chart-5`) are still the shadcn/ui grayscale defaults. The Reports chart uses the existing `--income` and `--expense` tokens and category colors instead.
-- Unit tests cover the finance logic, form schemas, stores, and persistence. There are no component or end-to-end tests in the repo; the SW-002 to SW-008B browser checks were run manually with Playwright.
+- Unit tests cover the finance logic, form schemas, stores, and persistence. Browser tests (SW-009) cover the critical journeys in Chromium. There are no isolated component tests.
 
 ## Planned backend integration
 

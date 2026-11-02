@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { formatCurrency } from "@/lib/finance/money";
-import { formatPercent } from "@/lib/finance/reports";
+import { formatPercentOf } from "@/lib/finance/reports";
 import { cn } from "@/lib/utils";
 import type { Centavos } from "@/types/finance";
 
@@ -10,7 +10,7 @@ export type BreakdownListItem = {
   name: string;
   isArchived: boolean;
   amount: Centavos;
-  /** 0–100, unrounded; rounded only for display. */
+  /** 0–100, unrounded; used for the bar width only. */
   percentage: number;
   /** Secondary line, e.g. "Bank · 3 expenses". */
   detail: string;
@@ -24,6 +24,8 @@ type ExpenseBreakdownListProps = {
   /** Accessible name for the list, e.g. "Expenses by category, November 2026". */
   label: string;
   items: readonly BreakdownListItem[];
+  /** Total expenses for the period; shares are formatted exactly from it. */
+  total: Centavos;
 };
 
 /**
@@ -32,7 +34,7 @@ type ExpenseBreakdownListProps = {
  * so nothing depends on color or bar length. Every row is listed; small
  * amounts are never folded into an "Others" row.
  */
-export function ExpenseBreakdownList({ label, items }: ExpenseBreakdownListProps) {
+export function ExpenseBreakdownList({ label, items, total }: ExpenseBreakdownListProps) {
   return (
     <ol aria-label={label} className="flex flex-col gap-4">
       {items.map((item) => (
@@ -54,7 +56,7 @@ export function ExpenseBreakdownList({ label, items }: ExpenseBreakdownListProps
               </div>
               <div className="shrink-0 text-right">
                 <p className="font-medium tabular-nums">{formatCurrency(item.amount)}</p>
-                <p className="text-xs text-muted-foreground tabular-nums">{formatPercent(item.percentage)}</p>
+                <p className="text-xs text-muted-foreground tabular-nums">{formatPercentOf(item.amount, total)}</p>
               </div>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
