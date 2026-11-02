@@ -1,12 +1,15 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { SparklesIcon } from "lucide-react";
 
 import { MobileNavigation } from "@/components/layout/mobile-navigation";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { getNavigationItem } from "@/config/navigation";
 import { REPORTING_TIME_ZONE } from "@/lib/finance/months";
+import { usePersistenceState, useProfileState } from "@/stores/finance-data-provider";
 
 export function AppHeader() {
   const pathname = usePathname();
@@ -26,6 +29,7 @@ export function AppHeader() {
             </p>
           )}
         </div>
+        <DemoModeBadge />
         <CurrentDate />
         <ThemeToggle />
       </div>
@@ -59,5 +63,28 @@ function CurrentDate() {
     <p className="hidden min-w-28 text-right text-sm text-muted-foreground sm:block">
       {date}
     </p>
+  );
+}
+
+/**
+ * Shown while the workspace is the demo dataset (SW-010): a small, always
+ * visible reminder that the records are examples, linking to the Settings
+ * action that clears them. Rendered only in the browser after the profile
+ * loads, so there's nothing to mismatch during hydration.
+ */
+function DemoModeBadge() {
+  const mode = useProfileState((state) => state.profile?.workspaceMode);
+  const workspace = usePersistenceState((state) => state.workspace);
+  if (mode !== "demo" || workspace !== "present") return null;
+
+  return (
+    <Link
+      href="/settings#demo-data"
+      className="flex shrink-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs font-medium text-foreground outline-none hover:bg-muted/70 focus-visible:ring-3 focus-visible:ring-ring/50"
+      aria-label="Demo mode: these are example records. Open Settings to clear them and start fresh."
+    >
+      <SparklesIcon className="size-3.5 text-muted-foreground" aria-hidden="true" />
+      Demo mode
+    </Link>
   );
 }

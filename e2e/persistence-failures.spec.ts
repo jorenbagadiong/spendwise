@@ -1,6 +1,17 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { fixture, navigate, open, readStored, readStoredRaw, seedStorage, snapshotText, STORAGE_KEY, waitForData } from "./fixtures";
+import {
+  fixture,
+  navigate,
+  open,
+  PROFILE_STORAGE_KEY,
+  readStored,
+  readStoredRaw,
+  seedStorage,
+  snapshotText,
+  STORAGE_KEY,
+  testProfile,
+} from "./fixtures";
 
 // Scenario G: storage that can't be read, is corrupt, is full, or is
 // changed by another tab. In every case nothing may be silently overwritten.
@@ -47,7 +58,7 @@ test("records that break integrity rules are rejected, not repaired", async ({ p
   expect(await readStoredRaw(page)).toBe(broken);
 });
 
-test("unavailable localStorage keeps working in memory and warns", async ({ page }) => {
+test("unavailable localStorage still allows onboarding, keeps working in memory, and warns", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -57,10 +68,17 @@ test("unavailable localStorage keeps working in memory and warns", async ({ page
     });
   });
   await page.goto("/dashboard");
-  await waitForData(page);
+  // No saved data can be read, so onboarding starts (nothing is seeded automatically).
+  await expect(page.getByRole("heading", { name: "Welcome to Spend Wise Tracker" })).toBeVisible();
+  await page.getByRole("button", { name: "Get started" }).click();
+  await page.getByLabel("Full name").fill("Memory Only");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue" }).click(); // personal workspace
+  await page.getByLabel(/I understand that my data is stored locally/).check();
+  await page.getByRole("button", { name: "Start using Spend Wise" }).click();
+
+  await expect(page.getByRole("heading", { name: /, Memory Only!$/ })).toBeVisible();
   await expect(page.getByRole("alert").filter({ hasText: "Changes are only kept in this tab" })).toBeVisible();
-  // Demo data is shown in memory; the app is usable.
-  await expect(page.getByText("Monthly summary")).toBeVisible();
 });
 
 test("a full storage quota keeps the old saved data and warns on every failed save", async ({ page }) => {
@@ -93,10 +111,11 @@ test("a full storage quota keeps the old saved data and warns on every failed sa
 
 test("a stale tab can't overwrite newer data saved by another tab", async ({ context }) => {
   await context.addInitScript(
-    ([key, value]) => {
+    ([key, value, profileKey, profile]) => {
       if (!localStorage.getItem(key)) localStorage.setItem(key, value);
+      if (!localStorage.getItem(profileKey)) localStorage.setItem(profileKey, profile);
     },
-    [STORAGE_KEY, snapshotText()] as const,
+    [STORAGE_KEY, snapshotText(), PROFILE_STORAGE_KEY, JSON.stringify(testProfile)] as const,
   );
   const tabA = await context.newPage();
   const tabB = await context.newPage();

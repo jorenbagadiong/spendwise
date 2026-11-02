@@ -9,16 +9,19 @@ export const metadata: Metadata = {
   title: "Accounts",
 };
 
-export default function AccountsPage() {
+export default function AccountsPage({ searchParams }: PageProps<"/accounts">) {
   return (
     <Suspense>
-      <Accounts />
+      <Accounts searchParams={searchParams} />
     </Suspense>
   );
 }
 
-async function Accounts() {
+async function Accounts({ searchParams }: { searchParams: PageProps<"/accounts">["searchParams"] }) {
   // Balances are shown "as of today" in Asia/Manila, read per request.
   await connection();
-  return <AccountsView today={getTodayInManila()} />;
+  // The dashboard's "Add your first account" links here with ?new=1.
+  const { new: openAdd } = await searchParams;
+  const startAdding = openAdd === "1";
+  return <AccountsView key={startAdding ? "new" : "default"} today={getTodayInManila()} startAdding={startAdding} />;
 }

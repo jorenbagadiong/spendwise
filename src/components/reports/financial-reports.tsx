@@ -23,7 +23,7 @@ import {
 import { MonthComparison } from "@/components/reports/month-comparison";
 import { MonthlyTrendChart } from "@/components/reports/monthly-trend-chart";
 import { ReportPeriodPicker } from "@/components/reports/report-period-picker";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { categoryColorClasses } from "@/config/category-appearance";
 import {
@@ -362,9 +362,9 @@ function NoDataState() {
         Reports are built from your recorded income and expenses. Opening balances aren&apos;t
         income, so they don&apos;t appear here.
       </p>
-      <Button render={<Link href="/transactions" />} nativeButton={false}>
+      <Link href="/transactions" className={buttonVariants()}>
         Add a transaction
-      </Button>
+      </Link>
     </section>
   );
 }

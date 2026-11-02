@@ -472,6 +472,7 @@ describe("recalculation from the shared stores", () => {
     });
     controller.connect();
     controller.initialize();
+    controller.createWorkspace(seed);
     expect(getMonthlyReport(transactionStore.getState().transactions, "2026-01").totalExpenses).toBe(2_000_000);
 
     const backup: FinancialData = {

@@ -3,7 +3,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { useStore } from "zustand";
 
-import { mockAccounts, mockCategories, mockTransactions } from "@/data/mock-finance";
 import {
   createPersistenceController,
   type PersistenceController,
@@ -11,6 +10,9 @@ import {
 } from "@/lib/persistence/controller";
 import { STORAGE_KEY } from "@/lib/persistence/snapshot";
 import { getBrowserStorage } from "@/lib/persistence/storage";
+import { createProfileController, type ProfileController, type ProfileState } from "@/lib/profile/controller";
+import { PROFILE_STORAGE_KEY } from "@/lib/profile/profile";
+import { demoData } from "@/lib/workspace/workspace";
 import { AccountStoreProvider, useAccountStoreApi } from "@/stores/account-store-provider";
 import { CategoryStoreProvider, useCategoryStoreApi } from "@/stores/category-store-provider";
 import {
@@ -18,18 +20,13 @@ import {
   useTransactionStoreApi,
 } from "@/stores/transaction-store-provider";
 
-const demoData = {
-  accounts: mockAccounts,
-  categories: mockCategories,
-  transactions: mockTransactions,
-};
-
 const PersistenceContext = createContext<PersistenceController | null>(null);
+const ProfileContext = createContext<ProfileController | null>(null);
 
 /**
  * Creates the account, category, and transaction stores (empty until
- * storage is read) plus the one persistence controller that loads and saves
- * them. Rendered once in the (app) layout.
+ * storage is read), the persistence controller that loads and saves them,
+ * and the local profile controller. Rendered once in the (app) layout.
  */
 export function FinanceDataProvider({ children }: { children: React.ReactNode }) {
   return (
@@ -48,18 +45,21 @@ function PersistenceProvider({ children }: { children: React.ReactNode }) {
   const categories = useCategoryStoreApi();
   const transactions = useTransactionStoreApi();
 
-  const [controller] = useState(() => {
+  const [{ controller, profileController }] = useState(() => {
     // On the server there's no window, so this reports "unavailable"; that's
     // fine because loading only happens in the effect below, in the browser.
     const storage = getBrowserStorage();
-    return createPersistenceController({
-      stores: { accounts, categories, transactions },
-      storage: storage.ok ? storage.storage : null,
-      unavailableMessage: storage.ok
-        ? undefined
-        : `${storage.message} Changes only last until this tab is closed.`,
-      seed: demoData,
-    });
+    return {
+      controller: createPersistenceController({
+        stores: { accounts, categories, transactions },
+        storage: storage.ok ? storage.storage : null,
+        unavailableMessage: storage.ok
+          ? undefined
+          : `${storage.message} Changes only last until this tab is closed.`,
+        seed: demoData(),
+      }),
+      profileController: createProfileController({ storage: storage.ok ? storage.storage : null }),
+    };
   });
 
   useEffect(() => {
@@ -67,11 +67,15 @@ function PersistenceProvider({ children }: { children: React.ReactNode }) {
     // storage is read only after hydration, so there's no mismatch.
     const disconnect = controller.connect();
     controller.initialize();
+    profileController.initialize();
 
-    // Fired when another tab or window changes localStorage.
+    // Fired when another tab or window changes localStorage (key null = cleared).
     function handleStorage(event: StorageEvent) {
       if (event.key === STORAGE_KEY || event.key === null) {
         controller.handleExternalChange(event.key === null ? null : event.newValue);
+      }
+      if (event.key === PROFILE_STORAGE_KEY || event.key === null) {
+        profileController.handleExternalChange(event.key === null ? null : event.newValue);
       }
     }
     window.addEventListener("storage", handleStorage);
@@ -79,9 +83,13 @@ function PersistenceProvider({ children }: { children: React.ReactNode }) {
       disconnect();
       window.removeEventListener("storage", handleStorage);
     };
-  }, [controller]);
+  }, [controller, profileController]);
 
-  return <PersistenceContext.Provider value={controller}>{children}</PersistenceContext.Provider>;
+  return (
+    <PersistenceContext.Provider value={controller}>
+      <ProfileContext.Provider value={profileController}>{children}</ProfileContext.Provider>
+    </PersistenceContext.Provider>
+  );
 }
 
 export function usePersistence(): PersistenceController {
@@ -92,4 +100,14 @@ export function usePersistence(): PersistenceController {
 
 export function usePersistenceState<T>(selector: (state: PersistenceState) => T): T {
   return useStore(usePersistence().state, selector);
+}
+
+export function useProfileController(): ProfileController {
+  const controller = useContext(ProfileContext);
+  if (!controller) throw new Error("useProfileController must be used inside FinanceDataProvider.");
+  return controller;
+}
+
+export function useProfileState<T>(selector: (state: ProfileState) => T): T {
+  return useStore(useProfileController().state, selector);
 }

@@ -27,6 +27,7 @@ import { formatCurrency } from "@/lib/finance/money";
 import { formatDateLabel } from "@/lib/finance/months";
 import { cn } from "@/lib/utils";
 import { useAccountStore } from "@/stores/account-store-provider";
+import { usePersistenceState } from "@/stores/finance-data-provider";
 import { useTransactionStore } from "@/stores/transaction-store-provider";
 import type { Account, AccountType, IsoDate } from "@/types/finance";
 
@@ -36,13 +37,16 @@ const typeIcons: Record<AccountType, LucideIcon> = {
   cash: BanknoteIcon,
 };
 
-export function AccountsView({ today }: { today: IsoDate }) {
+export function AccountsView({ today, startAdding = false }: { today: IsoDate; startAdding?: boolean }) {
   const accounts = useAccountStore((state) => state.accounts);
   const restoreAccount = useAccountStore((state) => state.restoreAccount);
   const transactions = useTransactionStore((state) => state.transactions);
   const addButtonRef = useRef<HTMLButtonElement>(null);
 
-  const [formOpen, setFormOpen] = useState(false);
+  // Opened straight away for ?new=1, but only shown once saved data has
+  // loaded, so the name check sees every existing account.
+  const [formOpen, setFormOpen] = useState(startAdding);
+  const dataReady = usePersistenceState((state) => state.status === "ready");
   const [editing, setEditing] = useState<Account | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [archiving, setArchiving] = useState<Account | null>(null);
@@ -162,7 +166,7 @@ export function AccountsView({ today }: { today: IsoDate }) {
       </section>
 
       <AccountFormDialog
-        open={formOpen}
+        open={formOpen && dataReady}
         onOpenChange={setFormOpen}
         account={editing}
         today={today}

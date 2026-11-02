@@ -6,14 +6,20 @@ import {
   DatabaseIcon,
   DownloadIcon,
   PaletteIcon,
+  PencilIcon,
+  ShieldCheckIcon,
   SlidersHorizontalIcon,
+  SparklesIcon,
   Trash2Icon,
   TriangleAlertIcon,
   UploadIcon,
+  UserRoundIcon,
   XIcon,
 } from "lucide-react";
 
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { PrivacyNotice } from "@/components/onboarding/onboarding-flow";
+import { EditProfileDialog } from "@/components/settings/edit-profile-dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,7 +44,14 @@ import {
 import { cn } from "@/lib/utils";
 import { useAccountStore } from "@/stores/account-store-provider";
 import { useCategoryStore } from "@/stores/category-store-provider";
-import { usePersistence, usePersistenceState } from "@/stores/finance-data-provider";
+import { PROFILE_STORAGE_KEY } from "@/lib/profile/profile";
+import { clearDemoData, markPersonal } from "@/lib/workspace/workspace";
+import {
+  usePersistence,
+  usePersistenceState,
+  useProfileController,
+  useProfileState,
+} from "@/stores/finance-data-provider";
 import { useTransactionStore } from "@/stores/transaction-store-provider";
 
 const statusText: Record<SaveState["kind"], string> = {
@@ -82,6 +95,13 @@ export function SettingsView() {
   const [pendingRestore, setPendingRestore] = useState<{ file: string; snapshot: FinancialSnapshot } | null>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileNotice, setProfileNotice] = useState<string | null>(null);
+  const [demoOpen, setDemoOpen] = useState(false);
+  const profileController = useProfileController();
+  const profile = useProfileState((state) => state.profile);
+  const profileMemoryOnly = useProfileState((state) => state.memoryOnly);
+  const isDemo = profile?.workspaceMode === "demo";
 
   const current: FinancialData = { accounts, categories, transactions };
   const writesBlocked = saveState.kind === "conflict" || saveState.kind === "unavailable";
@@ -111,26 +131,71 @@ export function SettingsView() {
   function confirmRestore() {
     if (!pendingRestore) return;
     const result = controller.restore(pendingRestore.snapshot);
-    setNotice(
-      result.ok
-        ? { tone: "success", text: `Restored ${describeCounts(pendingRestore.snapshot.data)} from “${pendingRestore.file}”.` }
-        : { tone: "error", text: `Nothing was changed. ${result.message}` },
-    );
+    if (!result.ok) {
+      setNotice({ tone: "error", text: `Nothing was changed. ${result.message}` });
+    } else {
+      // A restored backup is the person's own data, never the demo.
+      const mode = markPersonal(profileController);
+      const restored = `Restored ${describeCounts(pendingRestore.snapshot.data)} from “${pendingRestore.file}”.`;
+      setNotice(mode.ok ? { tone: "success", text: restored } : { tone: "error", text: `${restored} ${mode.message}` });
+    }
     setRestoreOpen(false);
   }
 
   function confirmClear() {
     const result = controller.clearAll();
+    if (!result.ok) {
+      setNotice({ tone: "error", text: `Nothing was changed. ${result.message}` });
+    } else {
+      const mode = markPersonal(profileController);
+      const cleared = "All financial data was cleared. Add accounts to start again, or import a backup.";
+      setNotice(mode.ok ? { tone: "success", text: cleared } : { tone: "error", text: `${cleared} ${mode.message}` });
+    }
+    setClearOpen(false);
+  }
+
+  function confirmClearDemo() {
+    const result = clearDemoData({ finance: controller, profile: profileController });
     setNotice(
       result.ok
-        ? { tone: "success", text: "All financial data was cleared. Add accounts to start again, or import a backup." }
-        : { tone: "error", text: `Nothing was changed. ${result.message}` },
+        ? { tone: "success", text: "Demo data cleared. You're in your own workspace now, with starter categories and no accounts or transactions." }
+        : { tone: "error", text: result.message },
     );
-    setClearOpen(false);
+    setDemoOpen(false);
   }
 
   return (
     <div className="flex max-w-3xl flex-col gap-8">
+      <section aria-labelledby="profile-heading" className="flex flex-col gap-4">
+        <h2 id="profile-heading" className="flex items-center gap-2 font-heading text-lg font-semibold tracking-tight">
+          <UserRoundIcon className="size-4.5 text-muted-foreground" aria-hidden="true" />
+          My profile
+        </h2>
+        <div role="status" className="empty:hidden">
+          {profileNotice && (
+            <p className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+              <CircleCheckIcon className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
+              <span className="min-w-0 flex-1">{profileNotice}</span>
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col gap-3 rounded-xl bg-card p-4 text-card-foreground ring-1 ring-foreground/10 sm:flex-row sm:items-center">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-medium text-muted-foreground">Full name</h3>
+            <p className="font-heading text-lg font-semibold [overflow-wrap:anywhere]">{profile?.fullName ?? "Not set"}</p>
+            <p className="text-sm text-muted-foreground">
+              Used to personalize the app. Saved only in this browser
+              {profileMemoryOnly ? " for this tab (browser storage is unavailable)" : ""}. It isn&apos;t an
+              account or a login, and it isn&apos;t included in JSON backups.
+            </p>
+          </div>
+          <Button variant="outline" className="shrink-0" disabled={!profile} onClick={() => setProfileOpen(true)}>
+            <PencilIcon data-icon="inline-start" aria-hidden="true" />
+            Edit profile
+          </Button>
+        </div>
+      </section>
+
       <section aria-labelledby="appearance-heading" className="flex flex-col gap-4">
         <h2 id="appearance-heading" className="flex items-center gap-2 font-heading text-lg font-semibold tracking-tight">
           <PaletteIcon className="size-4.5 text-muted-foreground" aria-hidden="true" />
@@ -216,8 +281,9 @@ export function SettingsView() {
           <div className="min-w-0 flex-1">
             <h3 className="font-medium">Back up your data</h3>
             <p className="text-sm text-muted-foreground">
-              Downloads every account, category, and transaction as a versioned JSON file.
-              Balances and totals aren&apos;t included; they&apos;re recalculated from the records.
+              Downloads every account, category, and transaction as a versioned JSON file you can
+              restore later. Balances and totals aren&apos;t included (they&apos;re recalculated),
+              and neither are your name or theme.
             </p>
           </div>
           <Button onClick={exportBackup} className="shrink-0">
@@ -280,6 +346,25 @@ export function SettingsView() {
           )}
         </div>
 
+        {/* Clear demo data (only while the workspace is the demo dataset) */}
+        {isDemo && (
+          <div id="demo-data" className="flex scroll-mt-24 flex-col gap-3 rounded-xl bg-card p-4 text-card-foreground ring-1 ring-foreground/10 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <h3 className="flex items-center gap-1.5 font-medium">
+                <SparklesIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+                You&apos;re using demo data
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Replace the example records with your own workspace: starter categories, no accounts or
+                transactions. Your name and theme stay.
+              </p>
+            </div>
+            <Button className="shrink-0" disabled={writesBlocked} onClick={() => setDemoOpen(true)}>
+              Clear Demo Data &amp; Start Fresh
+            </Button>
+          </div>
+        )}
+
         {/* Clear */}
         <div className="flex flex-col gap-3 rounded-xl bg-card p-4 text-card-foreground ring-1 ring-destructive/30 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
@@ -287,6 +372,13 @@ export function SettingsView() {
             <p className="text-sm text-muted-foreground">
               Deletes every account, category, and transaction from this browser. Demo data
               isn&apos;t added back. Export a backup first if you might need the data.
+              {!isDemo && (
+                <>
+                  {" "}
+                  Seeing sample records you didn&apos;t add? Earlier versions added them
+                  automatically; this removes them so you can start with your own.
+                </>
+              )}
             </p>
           </div>
           <Button
@@ -298,6 +390,33 @@ export function SettingsView() {
             <Trash2Icon data-icon="inline-start" aria-hidden="true" />
             Clear all data
           </Button>
+        </div>
+      </section>
+
+      <section aria-labelledby="privacy-heading" className="flex flex-col gap-4">
+        <h2 id="privacy-heading" className="flex items-center gap-2 font-heading text-lg font-semibold tracking-tight">
+          <ShieldCheckIcon className="size-4.5 text-muted-foreground" aria-hidden="true" />
+          Privacy &amp; data
+        </h2>
+        <div className="flex flex-col gap-4 rounded-xl bg-card p-4 text-card-foreground ring-1 ring-foreground/10">
+          <PrivacyNotice headingLevel={3} />
+          <ul className="list-disc pl-5 text-sm text-muted-foreground">
+            <li>There&apos;s no cloud sync: other browsers and devices don&apos;t see this data.</li>
+            <li>
+              Browsers usually allow about 5 MB per site, roughly 30,000 transactions. Saving stops
+              with a warning if it fills up.
+            </li>
+            <li>
+              Stored under <code className="font-mono">{STORAGE_KEY}</code> (financial records) and{" "}
+              <code className="font-mono">{PROFILE_STORAGE_KEY}</code> (your name and choices).
+            </li>
+          </ul>
+          <div>
+            <Button variant="outline" onClick={exportBackup}>
+              <DownloadIcon data-icon="inline-start" aria-hidden="true" />
+              Export JSON backup
+            </Button>
+          </div>
         </div>
       </section>
 
@@ -355,6 +474,31 @@ export function SettingsView() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={demoOpen} onOpenChange={setDemoOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear demo data and start fresh?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Everything in this workspace is replaced: {describeCounts(current)}, including anything
+              you added or changed while exploring. You&apos;ll start with starter categories and no
+              accounts or transactions, in personal mode. Your name, privacy acknowledgement, and theme
+              stay. Demo data won&apos;t come back. To keep a copy of the current records, export a
+              backup first.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={exportBackup}>
+              <DownloadIcon data-icon="inline-start" aria-hidden="true" />
+              Export backup first
+            </Button>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={confirmClearDemo}>
+              Clear demo data
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -376,6 +520,15 @@ export function SettingsView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {profile && (
+        <EditProfileDialog
+          open={profileOpen}
+          onOpenChange={setProfileOpen}
+          currentName={profile.fullName}
+          onSaved={(fullName) => setProfileNotice(`Saved. You'll be greeted as ${fullName}.`)}
+        />
+      )}
     </div>
   );
 }

@@ -84,14 +84,16 @@ test("dialogs trap focus, close with Escape, and return focus to their trigger",
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
 
-  // Tab through more stops than the dialog has: focus never leaves it.
-  // Base UI moves focus off its invisible focus guards asynchronously, so
-  // the presses are spaced like real key repeats (~30 ms) rather than
-  // fired back to back faster than any keyboard can.
+  // Tab through more stops than the dialog has: focus always settles inside
+  // it. Base UI moves focus off its invisible focus guards asynchronously
+  // (SW-009 R-6), which can take longer under heavy parallel test load, so
+  // each press waits for focus to settle. A real leak would leave focus on
+  // the page behind the dialog, and the poll would fail.
   for (let i = 0; i < 25; i++) {
     await page.keyboard.press("Tab");
-    await page.waitForTimeout(40);
-    expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+    await expect
+      .poll(() => dialog.evaluate((el) => el.contains(document.activeElement)), { timeout: 2_000 })
+      .toBe(true);
   }
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();

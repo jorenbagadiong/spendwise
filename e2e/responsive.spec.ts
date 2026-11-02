@@ -78,3 +78,22 @@ test("dialogs and menus fit a 375px screen", async ({ page }) => {
   await page.getByRole("button", { name: "Open navigation menu" }).click();
   await fits(page.getByRole("dialog"));
 });
+
+test("every onboarding step fits a 375px screen", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 700 });
+  await page.goto("/dashboard");
+  await expect(page.getByRole("heading", { name: "Welcome to Spend Wise Tracker" })).toBeVisible();
+  expect(await layoutProblems(page), "welcome").toEqual([]);
+  await page.getByRole("button", { name: "Get started" }).click();
+  await page.getByRole("button", { name: "Continue" }).click(); // shows the validation error
+  expect(await layoutProblems(page), "name with error").toEqual([]);
+  await page.getByLabel("Full name").fill("A Very Long Name That Keeps Going And Going Until It Reaches Eighty");
+  await page.getByRole("button", { name: "Continue" }).click();
+  expect(await layoutProblems(page), "workspace").toEqual([]);
+  await page.getByRole("button", { name: "Continue" }).click();
+  expect(await layoutProblems(page), "privacy").toEqual([]);
+  await page.getByLabel(/I understand/).check();
+  await page.getByRole("button", { name: "Start using Spend Wise" }).click();
+  await expect(page.getByRole("heading", { name: /A Very Long Name/ })).toBeVisible();
+  expect(await layoutProblems(page), "dashboard with a long name").toEqual([]);
+});

@@ -79,6 +79,14 @@ function saveRaw(storage: FakeStorage, data: FinancialData, revision = "rev-save
 
 const status = (c: PersistenceController) => c.state.getState();
 
+/** Loads storage and, like finishing onboarding, creates the seed workspace if none exists. */
+function begin(c: PersistenceController) {
+  c.initialize();
+  if (c.state.getState().status === "ready" && c.state.getState().workspace === "missing") {
+    expect(c.createWorkspace(seed).ok).toBe(true);
+  }
+}
+
 let storage: FakeStorage;
 beforeEach(() => {
   storage = new FakeStorage();
@@ -86,41 +94,68 @@ beforeEach(() => {
 });
 
 describe("initialization", () => {
-  it("seeds demo data on the first visit and saves it", () => {
-    const { controller, transactions } = setup(storage);
+  it("leaves a first visit without a workspace and writes nothing (SW-010: no automatic demo data)", () => {
+    const { controller, transactions, accounts } = setup(storage);
     expect(status(controller).status).toBe("loading");
     controller.initialize();
-    expect(status(controller)).toMatchObject({ status: "ready", source: "seeded", saveState: { kind: "saved" } });
+    expect(status(controller)).toMatchObject({ status: "ready", source: null, workspace: "missing", saveState: { kind: "idle" } });
+    expect(transactions.getState().transactions).toEqual([]);
+    expect(storage.values.has(STORAGE_KEY)).toBe(false);
+    // Changes before a workspace exists aren't saved either.
+    accounts.getState().addAccount({ name: "Early", type: "cash", openingBalance: 0, openingDate: "2026-01-01" });
+    expect(storage.writes).toBe(0);
+  });
+
+  it("creates the chosen workspace once, with a single write", () => {
+    const { controller, transactions } = setup(storage);
+    controller.initialize();
+    expect(controller.createWorkspace(seed, { demo: true })).toEqual({ ok: true });
+    expect(status(controller)).toMatchObject({ status: "ready", source: "seeded", workspace: "present", saveState: { kind: "saved" } });
     expect(transactions.getState().transactions).toEqual(seed.transactions);
     expect(storage.stored()).toMatchObject({ schemaVersion: 1, revision: "rev-1", data: seed });
     expect(storage.writes).toBe(1);
+    // A second attempt is refused: it can never overwrite saved records.
+    expect(controller.createWorkspace(other)).toEqual({ ok: false, message: "A workspace already exists in this browser." });
+    expect(storage.stored().data).toEqual(seed);
+  });
+
+  it("refuses to create a workspace over data another tab saved meanwhile, then adopts it", () => {
+    const { controller, accounts } = setup(storage);
+    controller.initialize();
+    saveRaw(storage, other, "rev-other-tab");
+    expect(controller.createWorkspace(seed).ok).toBe(false);
+    expect(storage.stored().data).toEqual(other);
+    controller.handleExternalChange(storage.values.get(STORAGE_KEY)!);
+    expect(status(controller)).toMatchObject({ workspace: "present", source: "saved" });
+    expect(accounts.getState().accounts).toEqual(other.accounts);
   });
 
   it("restores saved data on later visits without seeding again", () => {
     saveRaw(storage, other);
     const { controller, accounts, transactions } = setup(storage);
-    controller.initialize();
+    begin(controller);
     expect(status(controller)).toMatchObject({ status: "ready", source: "saved" });
     expect(accounts.getState().accounts).toEqual(other.accounts);
     expect(transactions.getState().transactions).toEqual(other.transactions);
     expect(storage.writes).toBe(0);
   });
 
-  it("never seeds twice, across repeated initialize calls or a second visit", () => {
+  it("never writes on load, across repeated initialize calls or a second visit", () => {
     const first = setup(storage);
     first.controller.initialize();
     first.controller.initialize();
-    expect(storage.writes).toBe(1);
+    expect(storage.writes).toBe(0);
+    first.controller.createWorkspace(seed);
     const second = setup(storage);
     second.controller.initialize();
-    expect(second.controller.state.getState().source).toBe("saved");
+    expect(second.controller.state.getState()).toMatchObject({ source: "saved", workspace: "present" });
     expect(storage.writes).toBe(1);
   });
 
   it("keeps an intentionally empty dataset empty", () => {
     saveRaw(storage, { accounts: [], categories: [], transactions: [] });
     const { controller, accounts } = setup(storage);
-    controller.initialize();
+    begin(controller);
     expect(status(controller).status).toBe("ready");
     expect(accounts.getState().accounts).toEqual([]);
     expect(storage.writes).toBe(0);
@@ -128,10 +163,10 @@ describe("initialization", () => {
 
   it("restores the same balances after a reload", () => {
     const first = setup(storage);
-    first.controller.initialize();
+    begin(first.controller);
     const before = calculateTotalAccountBalance(first.accounts.getState().accounts, first.transactions.getState().transactions, "2026-11-02");
     const second = setup(storage);
-    second.controller.initialize();
+    begin(second.controller);
     expect(calculateTotalAccountBalance(second.accounts.getState().accounts, second.transactions.getState().transactions, "2026-11-02")).toBe(before);
   });
 });
@@ -140,7 +175,7 @@ describe("load failures keep the stored value untouched", () => {
   const expectLoadError = (kind: string) => {
     const raw = storage.values.get(STORAGE_KEY);
     const { controller, transactions } = setup(storage);
-    controller.initialize();
+    begin(controller);
     expect(status(controller)).toMatchObject({ status: "load-error", loadError: { kind, raw } });
     expect(transactions.getState().transactions).toEqual([]);
     expect(storage.values.get(STORAGE_KEY)).toBe(raw);
@@ -185,7 +220,7 @@ describe("load failures keep the stored value untouched", () => {
   it("does not save changes while in the error state", () => {
     storage.values.set(STORAGE_KEY, "{not json");
     const { controller, accounts } = setup(storage);
-    controller.initialize();
+    begin(controller);
     accounts.getState().addAccount({ name: "New", type: "cash", openingBalance: 0, openingDate: "2026-01-01" });
     expect(storage.values.get(STORAGE_KEY)).toBe("{not json");
   });
@@ -193,7 +228,7 @@ describe("load failures keep the stored value untouched", () => {
   it("can overwrite unreadable data only when explicitly asked", () => {
     storage.values.set(STORAGE_KEY, "{not json");
     const { controller, accounts } = setup(storage);
-    controller.initialize();
+    begin(controller);
     expect(controller.replaceUnreadableData("empty")).toEqual({ ok: true });
     expect(status(controller)).toMatchObject({ status: "ready", loadError: null });
     expect(storage.stored().data).toEqual({ accounts: [], categories: [], transactions: [] });
@@ -202,17 +237,20 @@ describe("load failures keep the stored value untouched", () => {
 });
 
 describe("storage that can't be used", () => {
-  it("runs in memory with demo data when storage is unavailable", () => {
+  it("runs in memory when storage is unavailable: no workspace until one is chosen, never written", () => {
     const { controller, transactions } = setup(null, { unavailableMessage: "No storage." });
     controller.initialize();
-    expect(status(controller)).toMatchObject({ status: "ready", source: "memory", saveState: { kind: "unavailable", message: "No storage." } });
+    expect(status(controller)).toMatchObject({ status: "ready", source: "memory", workspace: "missing", saveState: { kind: "unavailable", message: "No storage." } });
+    expect(transactions.getState().transactions).toEqual([]);
+    expect(controller.createWorkspace(seed)).toEqual({ ok: true });
+    expect(status(controller)).toMatchObject({ workspace: "present", source: "memory" });
     expect(transactions.getState().transactions).toEqual(seed.transactions);
   });
 
   it("treats access denied on read as unavailable and never writes", () => {
     storage.failGet = new DOMException("blocked", "SecurityError");
     const { controller, accounts } = setup(storage);
-    controller.initialize();
+    begin(controller);
     expect(status(controller).saveState).toMatchObject({ kind: "unavailable" });
     storage.failGet = null;
     accounts.getState().addAccount({ name: "New", type: "cash", openingBalance: 0, openingDate: "2026-01-01" });
@@ -221,7 +259,7 @@ describe("storage that can't be used", () => {
 
   it("reports quota errors and retries on the next change", () => {
     const { controller, accounts } = setup(storage);
-    controller.initialize();
+    begin(controller);
     storage.failSet = new DOMException("full", "QuotaExceededError");
     accounts.getState().addAccount({ name: "New", type: "cash", openingBalance: 0, openingDate: "2026-01-01" });
     expect(status(controller).saveState).toEqual({ kind: "failed", reason: "quota", message: "Browser storage is full, so changes can't be saved." });
@@ -236,7 +274,7 @@ describe("storage that can't be used", () => {
 
   it("reports access denied on write", () => {
     const { controller, accounts } = setup(storage);
-    controller.initialize();
+    begin(controller);
     storage.failSet = new DOMException("blocked", "SecurityError");
     accounts.getState().archiveAccount("bank");
     expect(status(controller).saveState).toMatchObject({ kind: "failed", reason: "denied" });
@@ -247,7 +285,7 @@ describe("every successful mutation is saved", () => {
   let ctx: ReturnType<typeof setup>;
   beforeEach(() => {
     ctx = setup(storage);
-    ctx.controller.initialize();
+    begin(ctx.controller);
   });
   const saved = () => storage.stored().data as FinancialData;
 
@@ -305,7 +343,7 @@ describe("every successful mutation is saved", () => {
     ctx.categories.getState().archiveCategory("food");
     ctx.accounts.getState().updateAccount("bank", { name: "BPI", type: "bank" });
     const next = setup(storage);
-    next.controller.initialize();
+    begin(next.controller);
     expect(next.accounts.getState().accounts[0].name).toBe("BPI");
     expect(next.categories.getState().categories[1].isActive).toBe(false);
   });
@@ -314,7 +352,7 @@ describe("every successful mutation is saved", () => {
 describe("backup and restore", () => {
   it("exports a complete versioned snapshot of current data", () => {
     const { controller, accounts } = setup(storage);
-    controller.initialize();
+    begin(controller);
     accounts.getState().archiveAccount("wallet");
     const backup = controller.exportSnapshot();
     expect(backup).toMatchObject({ schemaVersion: 1, updatedAt: "2026-11-02T03:00:00.000Z" });
@@ -324,7 +362,7 @@ describe("backup and restore", () => {
 
   it("restores a valid backup, replacing everything", () => {
     const { controller, accounts, categories, transactions } = setup(storage);
-    controller.initialize();
+    begin(controller);
     expect(controller.restore(createSnapshot(other))).toEqual({ ok: true });
     expect(accounts.getState().accounts).toEqual(other.accounts);
     expect(categories.getState().categories).toEqual(other.categories);
@@ -334,7 +372,7 @@ describe("backup and restore", () => {
 
   it("is atomic: if saving fails, neither storage nor the stores change", () => {
     const { controller, transactions } = setup(storage);
-    controller.initialize();
+    begin(controller);
     const before = storage.values.get(STORAGE_KEY);
     storage.failSet = new DOMException("full", "QuotaExceededError");
     expect(controller.restore(createSnapshot(other))).toEqual({ ok: false, message: "Browser storage is full, so changes can't be saved." });
@@ -344,11 +382,11 @@ describe("backup and restore", () => {
 
   it("clears all data to an empty snapshot that stays empty", () => {
     const first = setup(storage);
-    first.controller.initialize();
+    begin(first.controller);
     expect(first.controller.clearAll()).toEqual({ ok: true });
     expect(first.transactions.getState().transactions).toEqual([]);
     const next = setup(storage);
-    next.controller.initialize();
+    begin(next.controller);
     expect(next.accounts.getState().accounts).toEqual([]);
     expect(next.controller.state.getState().source).toBe("saved");
   });
@@ -357,9 +395,9 @@ describe("backup and restore", () => {
 describe("multiple tabs", () => {
   it("detects another tab's write before saving and blocks further writes", () => {
     const tabA = setup(storage);
-    tabA.controller.initialize();
+    begin(tabA.controller);
     const tabB = setup(storage);
-    tabB.controller.initialize();
+    begin(tabB.controller);
 
     tabB.accounts.getState().addAccount({ name: "From B", type: "cash", openingBalance: 0, openingDate: "2026-01-01" });
     const afterB = storage.values.get(STORAGE_KEY);
@@ -377,7 +415,7 @@ describe("multiple tabs", () => {
 
   it("detects changes announced by the storage event", () => {
     const tab = setup(storage);
-    tab.controller.initialize();
+    begin(tab.controller);
     const own = storage.values.get(STORAGE_KEY) ?? null;
     tab.controller.handleExternalChange(own);
     expect(status(tab.controller).saveState.kind).toBe("saved");
@@ -387,7 +425,7 @@ describe("multiple tabs", () => {
 
   it("treats data cleared in another tab as a conflict", () => {
     const tab = setup(storage);
-    tab.controller.initialize();
+    begin(tab.controller);
     storage.values.delete(STORAGE_KEY);
     tab.accounts.getState().archiveAccount("bank");
     expect(status(tab.controller).saveState.kind).toBe("conflict");
@@ -396,9 +434,9 @@ describe("multiple tabs", () => {
 
   it("reloading resolves the conflict with the newer data", () => {
     const tabA = setup(storage);
-    tabA.controller.initialize();
+    begin(tabA.controller);
     const tabB = setup(storage);
-    tabB.controller.initialize();
+    begin(tabB.controller);
     tabB.accounts.getState().addAccount({ name: "From B", type: "cash", openingBalance: 0, openingDate: "2026-01-01" });
     tabA.controller.handleExternalChange(storage.values.get(STORAGE_KEY) ?? null);
     tabA.controller.reload();
@@ -410,7 +448,7 @@ describe("multiple tabs", () => {
 
   it("refuses restore and clear while in conflict", () => {
     const tabA = setup(storage);
-    tabA.controller.initialize();
+    begin(tabA.controller);
     tabA.controller.handleExternalChange(JSON.stringify({ revision: "elsewhere" }));
     storage.values.set(STORAGE_KEY, JSON.stringify({ ...createSnapshot(other), revision: "elsewhere" }));
     expect(tabA.controller.clearAll().ok).toBe(false);

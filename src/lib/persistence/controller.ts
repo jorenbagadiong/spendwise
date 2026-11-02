@@ -41,8 +41,14 @@ export type SaveState =
 
 export type PersistenceState = {
   status: "loading" | "ready" | "load-error";
-  /** Where the current data came from. */
+  /** Where the current data came from ("seeded" = the demo dataset was just written). */
   source: "saved" | "seeded" | "memory" | null;
+  /**
+   * "missing" until a workspace exists: nothing was saved yet (first visit),
+   * or storage couldn't be read. Nothing is saved while it's missing; the
+   * onboarding flow creates the workspace with `createWorkspace`.
+   */
+  workspace: "missing" | "present";
   loadError: LoadError | null;
   saveState: SaveState;
 };
@@ -60,7 +66,7 @@ type ControllerOptions = {
   /** null when storage can't be used; `unavailableMessage` explains why. */
   storage: StorageLike | null;
   unavailableMessage?: string;
-  /** Demo data written on the very first visit only. */
+  /** The demo dataset, offered by the recovery screen ("Replace with demo data"). */
   seed: FinancialData;
   now?: () => Date;
   createRevision?: () => string;
@@ -72,7 +78,8 @@ const CONFLICT_MESSAGE =
 /**
  * The single persistence boundary between the Zustand stores and
  * localStorage. It:
- * - loads storage once, seeding demo data only when nothing is saved;
+ * - loads storage once; when nothing is saved it writes nothing and waits
+ *   for onboarding to create a workspace (SW-010: no automatic demo data);
  * - saves one complete snapshot after every successful store change;
  * - never writes when storage couldn't be read, when another tab has saved
  *   newer data, or when storage is unavailable;
@@ -90,6 +97,7 @@ export function createPersistenceController({
   const state: StoreApi<PersistenceState> = createStore<PersistenceState>()(() => ({
     status: "loading",
     source: null,
+    workspace: "missing",
     loadError: null,
     saveState: { kind: "idle" },
   }));
@@ -150,20 +158,39 @@ export function createPersistenceController({
 
   /** Called after any store change made by the app (not by the controller). */
   function persistCurrent() {
-    const { status, saveState } = state.getState();
-    if (status !== "ready") return;
+    const { status, saveState, workspace } = state.getState();
+    if (status !== "ready" || workspace === "missing") return;
     // Writes stay blocked until the person reloads or storage becomes usable.
     if (saveState.kind === "conflict" || saveState.kind === "unavailable") return;
     write(getCurrentData());
   }
 
-  /** Reads storage and loads it. Seeds demo data only if the key doesn't exist. */
+  const EMPTY: FinancialData = { accounts: [], categories: [], transactions: [] };
+
+  /**
+   * Replaces the whole workspace (restore, clear, clear demo data). Storage
+   * is written first, with the same other-tab check as every save; the
+   * stores change only if that succeeds, so a failure leaves everything as
+   * it was.
+   */
+  function replaceWorkspace(data: FinancialData): CommitResult {
+    if (state.getState().status !== "ready") return { ok: false, message: "Data isn't loaded." };
+    const result = write(data);
+    if (result.ok) {
+      applyData(data);
+      setStatus({ workspace: "present", source: "saved" });
+    }
+    return result;
+  }
+
+  /** Reads storage and loads it. Never writes: a missing workspace stays missing. */
   function load() {
     if (!storage) {
-      applyData(seed);
+      applyData(EMPTY);
       setStatus({
         status: "ready",
         source: "memory",
+        workspace: "missing",
         loadError: null,
         saveState: { kind: "unavailable", message: unavailableMessage },
       });
@@ -172,10 +199,11 @@ export function createPersistenceController({
 
     const read = readItem(storage, STORAGE_KEY);
     if (!read.ok) {
-      applyData(seed);
+      applyData(EMPTY);
       setStatus({
         status: "ready",
         source: "memory",
+        workspace: "missing",
         loadError: null,
         saveState: { kind: "unavailable", message: `${read.message} Changes only last until this tab is closed.` },
       });
@@ -183,11 +211,11 @@ export function createPersistenceController({
     }
 
     if (read.value === null) {
-      // First visit: seed demo data and save it so later visits restore it.
-      applyData(seed);
+      // Nothing saved yet (first visit, or site data was cleared). Nothing is
+      // written until onboarding creates a workspace.
+      applyData(EMPTY);
       lastRevision = null;
-      setStatus({ status: "ready", source: "seeded", loadError: null });
-      write(seed, { force: true });
+      setStatus({ status: "ready", source: null, workspace: "missing", loadError: null, saveState: { kind: "idle" } });
       return;
     }
 
@@ -198,6 +226,7 @@ export function createPersistenceController({
       setStatus({
         status: "load-error",
         source: null,
+        workspace: "present",
         loadError: {
           kind: parsed.kind,
           message: parsed.message,
@@ -214,6 +243,7 @@ export function createPersistenceController({
     setStatus({
       status: "ready",
       source: "saved",
+      workspace: "present",
       loadError: null,
       saveState: { kind: "saved", at: parsed.snapshot.updatedAt },
     });
@@ -252,9 +282,15 @@ export function createPersistenceController({
 
     /** Another tab wrote the key (from the window "storage" event). */
     handleExternalChange(newValue: string | null) {
-      const { status } = state.getState();
+      const { status, workspace } = state.getState();
       if (status !== "ready" || !storage) return;
       if (readRevision(newValue) === lastRevision) return;
+      // This tab has no workspace yet (e.g. still onboarding), so there's
+      // nothing to lose: adopt what the other tab saved.
+      if (workspace === "missing") {
+        load();
+        return;
+      }
       setStatus({ saveState: { kind: "conflict", message: CONFLICT_MESSAGE } });
     },
 
@@ -266,24 +302,38 @@ export function createPersistenceController({
     },
 
     /**
-     * Replaces all data with a validated backup. Storage is written first;
-     * the stores change only if that succeeds, so a failure leaves everything
-     * as it was.
+     * Creates the first workspace (end of onboarding): empty, starter
+     * categories, or demo data. Refuses if a workspace already exists, or if
+     * another tab saved data in the meantime, so it can never overwrite
+     * saved records. Without usable storage the data lives in this tab only.
      */
-    restore(snapshot: FinancialSnapshot): CommitResult {
-      if (state.getState().status !== "ready") return { ok: false, message: "Data isn't loaded." };
-      const result = write(snapshot.data);
-      if (result.ok) applyData(snapshot.data);
+    createWorkspace(data: FinancialData, { demo = false }: { demo?: boolean } = {}): CommitResult {
+      const { status, workspace, saveState } = state.getState();
+      if (status !== "ready") return { ok: false, message: "Data isn't loaded." };
+      if (workspace === "present") return { ok: false, message: "A workspace already exists in this browser." };
+      if (!storage || saveState.kind === "unavailable") {
+        applyData(data);
+        setStatus({ workspace: "present", source: "memory" });
+        return { ok: true };
+      }
+      const result = write(data);
+      if (result.ok) {
+        applyData(data);
+        setStatus({ workspace: "present", source: demo ? "seeded" : "saved" });
+      }
       return result;
+    },
+
+    replaceWorkspace,
+
+    /** Replaces all data with a validated backup (see replaceWorkspace). */
+    restore(snapshot: FinancialSnapshot): CommitResult {
+      return replaceWorkspace(snapshot.data);
     },
 
     /** Saves an empty dataset (which stays empty: demo data is never re-added). */
     clearAll(): CommitResult {
-      if (state.getState().status !== "ready") return { ok: false, message: "Data isn't loaded." };
-      const empty: FinancialData = { accounts: [], categories: [], transactions: [] };
-      const result = write(empty);
-      if (result.ok) applyData(empty);
-      return result;
+      return replaceWorkspace(EMPTY);
     },
 
     /**
@@ -292,11 +342,11 @@ export function createPersistenceController({
      */
     replaceUnreadableData(kind: "demo" | "empty"): CommitResult {
       if (state.getState().status !== "load-error") return { ok: false, message: "Saved data isn't in an error state." };
-      const data: FinancialData = kind === "demo" ? seed : { accounts: [], categories: [], transactions: [] };
+      const data: FinancialData = kind === "demo" ? seed : EMPTY;
       const result = write(data, { force: true });
       if (result.ok) {
         applyData(data);
-        setStatus({ status: "ready", source: kind === "demo" ? "seeded" : "saved", loadError: null });
+        setStatus({ status: "ready", source: kind === "demo" ? "seeded" : "saved", workspace: "present", loadError: null });
       }
       return result;
     },

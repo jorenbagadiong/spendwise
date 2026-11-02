@@ -26,7 +26,9 @@ test("backup, change, and restore brings back the exact records; invalid files c
   await open(page, "/settings");
   const original = await readStored(page);
 
-  const backup = await download(page, () => page.getByRole("button", { name: "Export JSON backup" }).click());
+  const backup = await download(page, () =>
+    page.getByRole("region", { name: "Data management" }).getByRole("button", { name: "Export JSON backup" }).click(),
+  );
   expect(backup.name).toMatch(/^spendwise-backup-\d{4}-\d{2}-\d{2}\.json$/);
   expect(JSON.parse(backup.bytes.toString("utf8")).data).toEqual(original?.data);
 

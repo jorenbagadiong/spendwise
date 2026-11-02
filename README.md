@@ -29,6 +29,8 @@ Reports (SW-008B) add no dependencies either. The trend chart is built from plai
 
 CSV export (SW-008C) uses a small built-in CSV writer (`src/lib/export/csv.ts`) instead of a library; see [why no CSV library](#why-no-csv-library).
 
+Onboarding and the local profile (SW-010) add no dependencies. They use the existing React Hook Form, Zod, Zustand, and Base UI components, plus native radio buttons and a checkbox.
+
 Vitest 4 is used instead of Vitest 5 because Vitest 5 requires Node.js 22.12+, and this project supports Node.js 20.9+.
 
 ## Prerequisites
@@ -102,11 +104,15 @@ spendwise/
 │   │   │   └── category-icon-badge.tsx # Category icon on its color
 │   │   ├── export/
 │   │   │   └── csv-export-menu.tsx # "Export CSV" dropdown: builds and downloads a chosen dataset
+│   │   ├── onboarding/
+│   │   │   ├── onboarding-gate.tsx # Shows onboarding instead of the app shell when needed (SW-010)
+│   │   │   └── onboarding-flow.tsx # Welcome, name, workspace, privacy steps; shared PrivacyNotice
 │   │   ├── persistence/
 │   │   │   ├── data-gate.tsx       # Loading state, recovery screen, shows pages once data is read
 │   │   │   └── persistence-banner.tsx # Warning when changes aren't saved (failure, unavailable, other tab)
 │   │   ├── settings/
-│   │   │   └── settings-view.tsx   # Settings: Appearance, Data management, Preferences
+│   │   │   ├── settings-view.tsx   # Settings: My profile, Appearance, Data management, Privacy & data, Preferences
+│   │   │   └── edit-profile-dialog.tsx # Edit the local profile name (React Hook Form + Zod)
 │   │   ├── dashboard/
 │   │   │   ├── financial-dashboard.tsx # Month selector, summary cards, empty state (client)
 │   │   │   └── summary-card.tsx    # Reusable summary card (title, value, icon, tone); also used by Reports
@@ -126,7 +132,8 @@ spendwise/
 │   │   ├── category-appearance.ts  # Category icon keys → Lucide icons, color keys → classes
 │   │   └── navigation.ts           # Routes, titles, descriptions, icons (single source)
 │   ├── data/
-│   │   ├── mock-finance.ts         # Deterministic sample accounts, categories, transactions
+│   │   ├── default-categories.ts   # Starter categories for new personal workspaces (and the demo)
+│   │   ├── mock-finance.ts         # The demo dataset: deterministic sample accounts, categories, transactions
 │   │   └── mock-finance.test.ts    # Checks mock data is valid and matches hand-calculated totals
 │   ├── lib/
 │   │   ├── finance/
@@ -147,10 +154,17 @@ spendwise/
 │   │   │   ├── reports-csv.ts      # Monthly summary and breakdown CSVs from the report selectors
 │   │   │   ├── csv-test-helpers.ts # Test-only RFC 4180 parser for round-trip checks
 │   │   │   └── *.test.ts
+│   │   ├── profile/
+│   │   │   ├── profile.ts          # Local profile type, name rules, storage key and parsing, greeting
+│   │   │   ├── controller.ts       # Loads/saves the profile (write first, then update state)
+│   │   │   └── *.test.ts
+│   │   ├── workspace/
+│   │   │   ├── workspace.ts        # Onboarding plan, completeOnboarding, clearDemoData, starter data
+│   │   │   └── workspace.test.ts
 │   │   ├── persistence/
 │   │   │   ├── snapshot.ts         # Storage key, schema version, snapshot type, Zod validation, integrity checks
 │   │   │   ├── storage.ts          # Safe localStorage access and error classification (quota, denied, unavailable)
-│   │   │   ├── controller.ts       # The single persistence boundary: load, seed, save, restore, clear, conflicts
+│   │   │   ├── controller.ts       # The single persistence boundary: load, create workspace, save, replace, conflicts
 │   │   │   ├── download.ts         # File download helper (JSON backups and CSV exports) and backup file names
 │   │   │   └── *.test.ts
 │   │   ├── ids.ts                  # Sequential id helper ("acct-001", "txn-031")
@@ -177,7 +191,7 @@ spendwise/
 ├── playwright.config.ts            # Playwright config: Chromium, runs `next start -p 3100`
 ├── e2e/                            # Browser tests for critical journeys (SW-009)
 │   ├── fixtures.ts                 # Deterministic Jan–Feb 2026 dataset, storage seeding, axe helper
-│   ├── first-visit.spec.ts         # Scenario A: demo seeding once, navigation, reload
+│   ├── onboarding.spec.ts          # SW-010: onboarding, demo mode, clearing demo data, profile, existing users
 │   ├── transactions.spec.ts        # Scenario B: create/edit/delete each type, totals after every step
 │   ├── accounts-categories.spec.ts # Scenarios C–D: account and category lifecycles
 │   ├── backup-csv.spec.ts          # Scenarios E–F: JSON backup/restore, CSV exports and failures
@@ -196,7 +210,7 @@ A `src/hooks` folder will be added only when a milestone needs it.
 | `/`             | Redirects to `/dashboard` (temporary 307, set in `next.config.ts`) | SW-002                          |
 | `/dashboard`    | Financial summary dashboard            | SW-003 (done)                                               |
 | `/transactions` | Transaction table with add/edit/delete and CSV export | SW-004 (done), SW-005 (done), SW-008C (done: CSV export) |
-| `/accounts`     | Account management                     | SW-006 (done)                                               |
+| `/accounts`     | Account management (`?new=1` opens Add account) | SW-006 (done), SW-010 (`?new=1`)                   |
 | `/categories`   | Category management                    | SW-007 (done)                                               |
 | `/reports`      | Financial reports and CSV export       | SW-008B (done), SW-008C (done: CSV export)                  |
 | `/settings`     | Settings: appearance and data management | SW-002 (theme, in the header menu), SW-008A (done: data management) |
@@ -244,7 +258,7 @@ Defined in `src/types/finance.ts`.
 
 ## Mock data
 
-`src/data/mock-finance.ts` holds fixed sample data in Philippine pesos. It is plain data, separate from the UI, and never randomly generated. The mock transactions (SW-005), accounts (SW-006), and categories (SW-007) seed the in-memory stores.
+`src/data/mock-finance.ts` holds fixed sample data in Philippine pesos. It is plain data, separate from the UI, and never randomly generated. Since SW-010 it's the **demo dataset**: it's loaded only when someone chooses "Explore with demo data" during onboarding, or "Replace with demo data" on the recovery screen. It's never added automatically. Its categories are the same starter categories a personal workspace gets (`src/data/default-categories.ts`).
 
 - **Accounts (opened Jul 1, 2026):**
   - BPI Savings (bank, ₱45,000.00)
@@ -661,13 +675,13 @@ The server can't read `localStorage`, so the server HTML and the first browser r
 
 | What's in storage                       | Result                                                                                     |
 | --------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Nothing (first visit)                   | Demo data is loaded **and saved**. This is the only time demo data is added.               |
+| Nothing (first visit)                   | **SW-010:** nothing is loaded or written; onboarding asks how to start (own data or demo). Before SW-010, demo data was loaded and saved here. |
 | A valid snapshot                        | It's restored exactly.                                                                     |
 | A valid **empty** snapshot              | Stays empty. Demo data is never re-added.                                                 |
 | Invalid JSON                            | Recovery screen. The stored text is untouched.                                            |
 | Unsupported schema version              | Recovery screen ("from a different version"). The stored text is untouched.               |
 | Invalid or inconsistent records         | Recovery screen with the list of problems. The stored text is untouched.                  |
-| Storage unavailable or blocked          | Demo data in memory only, with a warning that changes last only until the tab closes. Nothing is written. |
+| Storage unavailable or blocked          | Onboarding runs and the chosen workspace lives in memory only, with a warning that changes last only until the tab closes. Nothing is written. (Before SW-010: demo data in memory.) |
 
 The **recovery screen** offers:
 - **Download saved data**, which downloads the original stored text exactly as it was (`spendwise-unreadable-data-YYYY-MM-DD.json`).
@@ -955,7 +969,7 @@ SW-009 audited the complete frontend MVP (SW-001 to SW-008C) before backend work
 
 Each of these is verified by an automated browser test against the production build, unless noted:
 
-- First visit seeds demo data exactly once; reloads read the saved data (same revision, no duplicates).
+- First visit seeds demo data exactly once; reloads read the saved data (same revision, no duplicates). *(Superseded in SW-010: first visits now go through onboarding and nothing is seeded automatically.)*
 - Income, expense, and transfer create/edit/delete, with the dashboard, Reports, account balances, and consolidated balance re-checked after every step (exact peso values). Changes persist across reloads.
 - Account and category lifecycles: create, rename, duplicate-name rejection, opening-date rule, archive (history and balances kept, not selectable for new transactions), restore.
 - JSON backup → change → restore returns the exact records. Invalid JSON and unsupported versions are rejected without touching storage.
@@ -1049,6 +1063,102 @@ No data-dependent slowdowns were found, so no optimizations were added. Zustand 
 - **Calculations are pure functions** that can run server-side or stay client-side over fetched data.
 - **Gaps a backend must close:** no user or auth model; ids are sequential per device (`txn-031`), so they'd collide across devices (switch to server-issued ids or UUIDs); edits overwrite with no history; the whole dataset is saved at once, which a backend should replace with per-record writes.
 
+## Onboarding, local profile, and privacy (SW-010)
+
+Spend Wise works without registration, accounts, or a backend. SW-010 adds a first-run onboarding, a local profile (a name for personalization), an explicit choice between a personal and a demo workspace, safe removal of demo data, and clear disclosures about browser storage.
+
+**Outcome: CONDITIONAL PASS.** Every SW-010 requirement is implemented and verified. The open SW-009 contrast issue (D-2) still applies to the new screens' tinted badges and the destructive "Clear demo data" confirm button.
+
+### First-time onboarding
+
+A new visitor (nothing saved in this browser) sees four steps instead of the app. A step indicator shows the progress, with Back and Continue buttons:
+
+1. **Welcome:** what Spend Wise does (income and expenses, accounts, categories, balances and cash flow, reports, CSV export), with no account needed.
+2. **What should we call you?** One field: full name. It's required, trimmed, at most 80 characters (each Unicode character counts once), and any script is fine ("José", "Ñoño", "李小龍"). Whitespace-only names and control characters are rejected. No email, password, birthday, phone, or address is asked for. The name stays in the form when going Back.
+3. **How would you like to start?**
+   - **Start with my own data** (default): a personal workspace with the 9 starter categories (templates, not activity), **no accounts and no transactions**. The dashboard then shows "Let's set up your finances." with **Add your first account**, which opens the Add account form (`/accounts?new=1`).
+   - **Explore with demo data:** the sample dataset (July–November 2026), labeled as demo data everywhere.
+4. **Your data, your privacy:** the privacy notice (below) and an **unticked, required** checkbox: "I understand that my data is stored locally and may be permanently lost if browser site data is cleared." The finish button stays disabled until it's ticked. The acknowledgement time is saved with the profile.
+
+Nothing is written to storage until the last step. Focus moves to each step's heading. Everything works with the keyboard (tested). Finishing opens the app at the top of the page with focus on the page title, and the finish button can't submit twice. Returning visitors never see a flash of onboarding: it's decided only after both saved records and the profile have been read.
+
+### Local profile
+
+Stored under its own key, **`spendwise:profile:v1`** (profile schema version 1), separate from the financial snapshot:
+
+| Field | Meaning |
+| --- | --- |
+| `profileSchemaVersion` | `1` |
+| `fullName` | The trimmed name |
+| `workspaceMode` | `"personal"` or `"demo"` |
+| `privacyAcknowledgedAt` | When the storage acknowledgement was ticked (ISO timestamp) |
+| `onboardingCompletedAt` | When onboarding finished (ISO timestamp) |
+
+- It's **not an identity or a login**: nothing verifies it, there's no session, and nothing else references it (so it has no id).
+- `createProfileController` writes to storage **first** and updates the app only if the write succeeded, so "Saved" is never shown for a failed save. A stored profile is validated strictly and never repaired.
+- Without usable storage, the profile lives in memory for the tab, and Settings says so.
+- Other tabs pick up profile changes through the `storage` event.
+- **Personalized dashboard:** "Good morning / afternoon / evening, *name*!" The time of day is computed in Asia/Manila on the server per request, like "today", so the server HTML and the browser agree (no hydration mismatch, verified in `next dev`). Long names wrap instead of overflowing.
+- **Settings → My profile** shows the name and an **Edit profile** dialog with the same validation. The greeting updates immediately, and the change persists after refresh.
+
+### Personal versus demo mode
+
+| | Personal | Demo |
+| --- | --- | --- |
+| Data | The person's own records (also used for data of unknown origin) | The sample dataset |
+| Indicator | None | A **Demo mode** badge in the header (links to Settings), plus a note on the dashboard: "You're exploring demo data: these accounts and transactions are examples." |
+| Leaving it | — | **Settings → Data management → Clear Demo Data & Start Fresh** |
+
+Demo and personal records are never mixed silently. The only ways into demo mode are choosing it in onboarding, or "Replace with demo data" on the recovery screen.
+
+### Clearing demo data
+
+**Clear Demo Data & Start Fresh** (shown only in demo mode) opens a confirmation that says exactly what happens:
+
+- **Everything in the workspace is replaced**, including anything added or changed while exploring. Records can't reliably be told apart as demo or personal, so this is an explicitly confirmed whole-workspace replacement, never a selective delete.
+- The result is a personal workspace: starter categories, no accounts or transactions.
+- The **name, privacy acknowledgement, and theme stay**, onboarding stays complete, and demo data is never re-added (also not after a refresh, which is tested).
+- **Export backup first** is offered in the dialog.
+- The replacement uses the same atomic, conflict-checked write as backup restore. If it can't be saved (storage full, another tab saved newer data), **nothing changes** and the message says so.
+
+**Clear all data** (the SW-008A reset) is still a separate, destructive action with its own confirmation. After either action, or after restoring a backup, the workspace mode becomes personal.
+
+### Existing users (data saved before SW-010)
+
+| What's saved | What happens |
+| --- | --- |
+| Valid financial records, no profile | **"Welcome back" onboarding:** welcome → name → **"What should we do with your saved data?"** → privacy. The data step shows what's saved ("4 accounts, 9 categories, and 30 transactions") and explains that earlier versions added sample records automatically. It offers two choices: **Keep my current data** (selected by default; nothing is changed, and the snapshot isn't even rewritten) or **Start fresh with my own data**. Start fresh shows a warning, a **Download backup first** button, and a required checkbox ("I understand that my saved accounts, categories, and transactions will be removed"). Continue stays disabled until it's ticked, and the final button reads **Start fresh**. Nothing is removed until that final button; the replacement is atomic, and if it fails nothing changes. Kept data is treated as **personal**: records are never *assumed* to be demo data, so the person decides. |
+| A valid empty snapshot, no profile | Same flow; keeping it leaves it empty. |
+| Corrupt or unsupported financial data | The SW-008A recovery screen, as before. Onboarding never runs on top of it, and nothing is overwritten. |
+| A profile but no financial data (that key was removed) | Only the workspace step; the name and acknowledgement are kept. |
+| An unreadable profile | Treated as no profile; onboarding writes a new one. It only ever held a name and choices. |
+
+The financial snapshot schema is **unchanged (version 1)**, so no migration was needed.
+
+### Privacy and storage disclosures
+
+The onboarding notice and **Settings → Privacy & data** say:
+
+- **Stored on your device:** name, accounts, categories, and transactions are in this browser's local storage, not uploaded to an application backend. There's no server-side database, analytics, or tracking scripts.
+- **Private:** no account is needed. The host serving the app can see normal page requests (IP address, pages opened), but those don't contain financial records or the name. Local storage **isn't encrypted**.
+- **Data can be lost:** clearing cookies and site data, removing browser storage, or using another browser or device can erase it. Clearing only cached images and files usually doesn't. Private or incognito windows discard it when closed.
+- **Protect your records:** download a **JSON backup** regularly (Settings → Data management). **CSV exports are for spreadsheets and can't be restored.**
+- Settings adds: no cloud sync, the ~5 MB / ~30,000-transaction limit, both storage keys, and a direct **Export JSON backup** button.
+
+**How these claims were verified.** A browser session went through onboarding, every page, a CSV export, and a backup download:
+
+- All **142 network requests** went to the app's own origin (no third-party hosts; fonts are self-hosted by `next/font` at build time).
+- **No cookies** were set, and no URL contained the name or any financial data.
+- Only the two Spend Wise keys were in `localStorage` (plus next-themes' `theme` once a theme is picked).
+- The code has no analytics, monitoring, `fetch`, or logging (SW-009 review).
+
+**Not verifiable from the repo:** what a future hosting provider logs (request metadata only, since data never leaves the browser) and what browser extensions do. The wording avoids claiming that "no information is collected".
+
+### Backup and restore compatibility
+
+- JSON backups are **unchanged**: schema version 1, financial records only. They don't include the profile (name, mode, acknowledgement) or the theme, and Settings says so. Old backups restore as before, and new backups restore in older SW-008A/B/C builds.
+- **Restoring never changes the profile name.** A restored backup is treated as the person's own data, so the mode becomes **personal** (tested from demo mode). Validation, atomicity, archived records, and relationships are unchanged. An invalid file changes nothing.
+
 ## Testing
 
 ```bash
@@ -1058,7 +1168,7 @@ npm run build        # production build (needed before browser tests)
 npm run test:e2e     # browser tests (Playwright, Chromium)
 ```
 
-**Browser tests (SW-009)** in `e2e/` run against the production build: Playwright starts `next start -p 3100`, or reuses a server already on that port. Each test seeds its own deterministic dataset (January–February 2026) into `localStorage` before the app loads, so results don't depend on the demo data or today's date. Tests use roles, labels, and visible text, not CSS classes. Accessibility checks inject the installed `axe-core` and run its WCAG 2.2 A/AA rules. The first run needs a Playwright Chromium (`npx playwright install chromium`, about 170 MB, stored outside the repo).
+**Browser tests (SW-009, extended in SW-010)** in `e2e/` run against the production build. `onboarding.spec.ts` covers the new-visitor flow (validation, Back, the acknowledgement), demo mode and clearing it, existing-user migration, no onboarding flash for returning users, profile editing, restoring a backup in demo mode, keyboard-only onboarding with axe checks, and the mobile scroll position. Other specs seed a finished profile so they skip onboarding. The test runner: Playwright starts `next start -p 3100`, or reuses a server already on that port. Each test seeds its own deterministic dataset (January–February 2026) into `localStorage` before the app loads, so results don't depend on the demo data or today's date. Tests use roles, labels, and visible text, not CSS classes. Accessibility checks inject the installed `axe-core` and run its WCAG 2.2 A/AA rules. The first run needs a Playwright Chromium (`npx playwright install chromium`, about 170 MB, stored outside the repo).
 
 Why Playwright: earlier milestones' browser checks were one-off scripts. A committed suite makes the critical journeys repeatable. The cost is a dev-only dependency that never ships to users. Component tests (jsdom/React Testing Library) weren't added, because the browser tests cover the same integration paths against the real build without a second test environment.
 
@@ -1092,7 +1202,7 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
 - Transaction store validation at the action boundary: nonexistent, wrong-type, and archived categories; archived accounts; keeping an edited transaction's own archived category but not reassigning to another; transfers without categories
 - Selectable categories per type, usage counts after transaction changes (transfers excluded), renamed-category search, archived-category filtering
 - Persistence (`src/lib/persistence/*.test.ts`, using an in-memory fake storage):
-  - Loading: first-visit seeding, reload with valid data, empty dataset, no duplicate seeding.
+  - Loading: first visit writes nothing (SW-010), creating a workspace once (refused if one exists or another tab saved), reload with valid data, empty dataset.
   - Saving: every transaction, account, and category mutation (including archive and restore); no writes for rejected actions.
   - Load failures: invalid JSON, unsupported version, invalid amounts, broken references, duplicates.
   - Storage failures: access denied, quota errors, unavailable storage.
@@ -1109,6 +1219,14 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Selectable months (including future-dated transactions), percentage and axis formatting, `shiftMonth`.
   - No mutation of source data (frozen inputs).
   - Recalculation after adding, editing, and deleting through the transaction store, after adding a transfer, after archiving, and after restoring a backup through the persistence controller.
+- Onboarding and profile (SW-010, `src/lib/profile/*.test.ts`, `src/lib/workspace/workspace.test.ts`):
+  - Name rules: trimming, required, whitespace-only, Unicode in several scripts, the 80-character limit counted per character (emoji), control characters.
+  - Stored profile parsing: missing, valid, invalid JSON, other versions, unknown fields, unclean names (never repaired).
+  - Profile controller: write-first saves, failed saves leave state unchanged, editing, mode switching, memory-only mode (decided after hydration), other-tab changes.
+  - Onboarding plan for every combination of saved data and profile; personal and demo workspaces; required acknowledgement; returning users; retry after a failed profile save without creating the workspace twice; memory-only mode.
+  - Existing users: records kept and not rewritten by default, demo-looking data treated as personal, explicit start-fresh replaces them (and changes nothing if the save fails), empty snapshots kept, corrupt or unsupported data never onboarded over.
+  - Clearing demo data: whole-workspace replacement including edits made while exploring, profile and acknowledgement kept, no re-seeding after refresh, nothing changed on save failure or other-tab conflict.
+  - Greeting: Asia/Manila time-of-day boundaries.
 - CSV export (`src/lib/export/*.test.ts`):
   - Escaping: commas, double quotes, CR/LF and multi-line text, leading/trailing spaces; CRLF line endings; BOM bytes; round trips through a reference RFC 4180 parser; Unicode (ñ, ₱, –, emoji, CJK).
   - Formula injection: `=`, `+`, `-`, `@`, `HYPERLINK`/DDE payloads, leading whitespace and control-character bypasses, full-width characters; safe text left alone; number cells never prefixed and rejected if not plain decimals.
@@ -1149,7 +1267,7 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Transaction store validates accounts and categories itself
 - **SW-008A:** local data persistence
   - Accounts, categories, and transactions saved to `localStorage` and restored on every visit
-  - Demo data seeded only on the first visit; validated, versioned snapshot; recovery screen for unreadable data
+  - Demo data seeded only on the first visit (replaced by onboarding in SW-010); validated, versioned snapshot; recovery screen for unreadable data
   - Settings page: Appearance (shared theme selector), Data management (status with recovery guidance, JSON backup export and import, clear all data), and read-only Preferences (PHP currency, Asia/Manila time zone)
   - Save-failure warnings and multiple-tab conflict protection
 - **SW-008B:** financial reports
@@ -1166,6 +1284,12 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Playwright browser tests for every critical journey and storage-failure case, plus axe accessibility and responsive checks
   - Financial invariant suite, including time-zone independence
   - Fixes: exact percentage rounding, Settings definition-list markup, reduced-motion support, focus return after cancelling a delete, stale CSV error message
+- **SW-010:** onboarding, local profile, demo data management, and privacy
+  - Four-step first-run onboarding (welcome, name, workspace, privacy acknowledgement); existing users choose to keep their saved data (default) or start fresh, with confirmation
+  - Local profile with a personalized dashboard greeting; Settings → My profile with editing
+  - Personal or demo workspace; Demo mode badge; Clear Demo Data & Start Fresh (confirmed, atomic)
+  - New personal workspaces start with starter categories and a "Let's set up your finances" dashboard
+  - Settings → Privacy & data with verified, accurate storage and privacy disclosures
 
 ## Development progress
 
@@ -1182,7 +1306,8 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - [x] **SW-008B** — Financial reports (reporting period, summary cards with cash flow margin, six-month trend, category and account breakdowns, month-over-month comparison)
 - [x] **SW-008C** — CSV export (transactions: filtered or all; reports: monthly summary and expense breakdowns; formula-injection protection)
 - [x] **SW-009** — Frontend MVP audit and stabilization (conditional pass: browser test suite, 6 defects found, 5 fixed, D-2 contrast open pending a design decision)
-- [ ] **SW-010** — Backend foundation (proposed)
+- [x] **SW-010** — Onboarding, local profile, demo data management, and privacy (conditional pass: D-2 contrast still open)
+- Backend and API development: postponed indefinitely unless requested. Future milestones focus on local-first improvements.
 
 ### Milestone dependencies
 
@@ -1201,7 +1326,7 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - **SW-002 (done):** theme preference (Light, Dark, System). It's currently set from the header theme menu and saved in `localStorage`.
 - **SW-008A (done):** local data management: storage status, JSON backup export and import, and clear all data.
 
-**Next milestone:** SW-010 — Backend foundation (proposed; see [Backend readiness](#backend-readiness)). Resolving D-2 needs a design decision first.
+**Next milestone:** to be decided (local-first improvements). Resolving D-2 needs a design decision.
 
 ## Current limitations
 
@@ -1232,7 +1357,12 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - Filters, sort order, and page aren't kept in the URL, so a filtered view can't be bookmarked or shared. With Cache Components, Next.js keeps up to three recently visited pages mounted (hidden with React `<Activity>`), so filters survive moving between pages; a full refresh resets them.
 - On mobile the six filter controls stack vertically and take up a lot of space before the results.
 - Search matches descriptions and category names, not account names or amounts.
-- Mock data is fixed to July–November 2026. In later months, the dashboard will default to a month with no data. Every month from July 2026 onward stays selectable.
+- The demo dataset is fixed to July–November 2026. In later months, the demo dashboard defaults to a month with no data. Every month from July 2026 onward stays selectable.
+- The profile and the financial data use two storage keys, which can't be written atomically together. Each step is ordered and safe to retry: the workspace is created first, then the profile. If the profile can't be saved, onboarding stays open and retrying doesn't create a second workspace. A failure between them leaves at most a mismatched demo/personal label, never lost records.
+- JSON backups don't include the profile (name, mode, acknowledgement). After restoring on a new browser, onboarding asks for a name again (profile-only flow).
+- Clearing demo data replaces the whole workspace. Records added while exploring the demo can't be kept selectively; export a backup first if needed.
+- Existing users from before SW-010 who still have the auto-added sample records are asked during onboarding whether to keep their saved data or start fresh (explicitly confirmed). If they keep it, the records count as personal data, and Settings → Clear all data (which mentions this case) can remove them later.
+- The onboarding and Settings privacy text describes this app's behavior. It can't account for a hosting provider's request logs or browser extensions.
 - Months are listed in a single dropdown. Once data spans many years, a year selector may be needed.
 - The header date is formatted in the browser after load, so it appears a moment after the rest of the header. It shows the Asia/Manila date (matching the dashboard) in the browser's locale format, and doesn't update if the page stays open past midnight.
 - Chart color tokens (`--chart-1` to `--chart-5`) are still the shadcn/ui grayscale defaults. The Reports chart uses the existing `--income` and `--expense` tokens and category colors instead.
@@ -1240,4 +1370,4 @@ A story is checked only when its acceptance criteria and verification checks (ty
 
 ## Planned backend integration
 
-After the frontend milestones, data storage is planned to move from `localStorage` to a backend (API, database, and authentication). That work is out of scope for SW-001 to SW-008, so the frontend will be structured so that its storage layer can be swapped out later.
+Backend work is **postponed indefinitely** (as of SW-010) unless explicitly requested; Spend Wise is developed as a local-first app. If it resumes, see [Backend readiness](#backend-readiness). Originally, after the frontend milestones, data storage was planned to move from `localStorage` to a backend (API, database, and authentication). That work is out of scope for SW-001 to SW-008, so the frontend will be structured so that its storage layer can be swapped out later.

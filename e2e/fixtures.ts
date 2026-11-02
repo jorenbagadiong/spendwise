@@ -3,8 +3,18 @@ import path from "node:path";
 import { expect, type Page } from "@playwright/test";
 
 import { createSnapshot, STORAGE_KEY, type FinancialData } from "@/lib/persistence/snapshot";
+import { PROFILE_STORAGE_KEY, type LocalProfile } from "@/lib/profile/profile";
 
-export { STORAGE_KEY };
+export { PROFILE_STORAGE_KEY, STORAGE_KEY };
+
+/** A finished onboarding (SW-010), so tests of other pages skip it. */
+export const testProfile: LocalProfile = {
+  profileSchemaVersion: 1,
+  fullName: "Test User",
+  workspaceMode: "personal",
+  privacyAcknowledgedAt: "2026-03-01T00:00:00.000Z",
+  onboardingCompletedAt: "2026-03-01T00:00:00.000Z",
+};
 
 /**
  * Deterministic dataset for browser tests (January–February 2026), so
@@ -45,19 +55,30 @@ export function snapshotText(data: FinancialData = fixture): string {
 }
 
 /**
- * Puts `value` in localStorage before the app first loads. Runs once per
- * tab (tracked in sessionStorage), so reloads keep whatever the app saved.
+ * Puts `value` (and, unless `profile: null`, a finished profile) in
+ * localStorage before the app first loads. Runs once per tab (tracked in
+ * sessionStorage), so reloads keep whatever the app saved.
  */
-export async function seedStorage(page: Page, value: string | FinancialData = fixture) {
+export async function seedStorage(
+  page: Page,
+  value: string | FinancialData = fixture,
+  { profile = testProfile }: { profile?: LocalProfile | null } = {},
+) {
   const text = typeof value === "string" ? value : snapshotText(value);
   await page.addInitScript(
-    ([key, stored]) => {
+    ([key, stored, profileKey, profileText]) => {
       if (sessionStorage.getItem("e2e-seeded")) return;
       localStorage.setItem(key, stored);
+      if (profileText) localStorage.setItem(profileKey, profileText);
       sessionStorage.setItem("e2e-seeded", "1");
     },
-    [STORAGE_KEY, text] as const,
+    [STORAGE_KEY, text, PROFILE_STORAGE_KEY, profile ? JSON.stringify(profile) : ""] as const,
   );
+}
+
+export async function readProfile(page: Page): Promise<LocalProfile | null> {
+  const raw = await page.evaluate((key) => localStorage.getItem(key), PROFILE_STORAGE_KEY);
+  return raw === null ? null : JSON.parse(raw);
 }
 
 /** Opens a page and waits until saved data has been read (DataGate ready). */

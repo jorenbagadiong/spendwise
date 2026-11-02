@@ -1,7 +1,9 @@
-import type { Account, Category, Transaction } from "@/types/finance";
+import { defaultCategories } from "@/data/default-categories";
+import type { Account, Transaction } from "@/types/finance";
 
-// Fixed sample data for the dashboard until real data entry (and persistence)
-// arrives. All amounts are integer centavos: 1_850_000 = ₱18,500.00.
+// The demo dataset: chosen in onboarding ("Explore with demo data") or from
+// the recovery screen. It's never added automatically (SW-010). All amounts
+// are integer centavos: 1_850_000 = ₱18,500.00.
 //
 // Months covered: July, August, October, and early November 2026.
 // September 2026 intentionally has no transactions.
@@ -41,17 +43,8 @@ export const mockAccounts = [
   },
 ] as const satisfies readonly Account[];
 
-export const mockCategories = [
-  { id: "salary", name: "Salary", type: "income", icon: "briefcase", color: "emerald", isActive: true },
-  { id: "other-income", name: "Other Income", type: "income", icon: "coins", color: "teal", isActive: true },
-  { id: "food", name: "Food", type: "expense", icon: "utensils", color: "orange", isActive: true },
-  { id: "groceries", name: "Groceries", type: "expense", icon: "shopping-basket", color: "lime", isActive: true },
-  { id: "bills", name: "Bills", type: "expense", icon: "receipt", color: "amber", isActive: true },
-  { id: "transportation", name: "Transportation", type: "expense", icon: "bus", color: "sky", isActive: true },
-  { id: "shopping", name: "Shopping", type: "expense", icon: "shopping-bag", color: "pink", isActive: true },
-  { id: "entertainment", name: "Entertainment", type: "expense", icon: "clapperboard", color: "violet", isActive: true },
-  { id: "other-expenses", name: "Other Expenses", type: "expense", icon: "circle-ellipsis", color: "slate", isActive: true },
-] as const satisfies readonly Category[];
+// The demo uses the same starter categories a personal workspace gets.
+export const mockCategories = defaultCategories;
 
 export const mockTransactions = [
   // July 2026 — income ₱37,000.00, expenses ₱7,825.65

@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { backupFilename, downloadTextFile } from "@/lib/persistence/download";
-import { usePersistence, usePersistenceState } from "@/stores/finance-data-provider";
+import { usePersistence, usePersistenceState, useProfileController } from "@/stores/finance-data-provider";
 
 /**
  * Shows page content only once saved data has been read. Until then it
@@ -51,6 +51,7 @@ export function DataGate({ children }: { children: React.ReactNode }) {
 
 function RecoveryScreen() {
   const controller = usePersistence();
+  const profile = useProfileController();
   const loadError = usePersistenceState((state) => state.loadError);
   const [replaceWith, setReplaceWith] = useState<"demo" | "empty" | null>(null);
   const [lastChoice, setLastChoice] = useState<"demo" | "empty">("demo");
@@ -155,6 +156,11 @@ function RecoveryScreen() {
               variant="destructive"
               onClick={() => {
                 const result = controller.replaceUnreadableData(lastChoice);
+                // Keep the profile's workspace mode in step with what was written
+                // (no-op without a profile; onboarding then asks for one).
+                if (result.ok && profile.state.getState().profile) {
+                  profile.setWorkspaceMode(lastChoice === "demo" ? "demo" : "personal");
+                }
                 setFailure(result.ok ? null : result.message);
                 setReplaceWith(null);
               }}
