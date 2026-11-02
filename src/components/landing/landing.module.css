@@ -1,0 +1,114 @@
+/*
+ * Faux 3D for the landing page (SW-011). CSS perspective and transforms
+ * only: no WebGL. Scroll and pointer positions arrive as CSS custom
+ * properties written by LandingMotion (no React re-renders):
+ *   --rx, --ry  pointer position over the hero, -1…1 (desktop, fine pointer)
+ *   --v         how visible a story layer is, 0…1
+ *   --d         where that layer is relative to the current scene, -1…1
+ *   --i         a transaction row's index, for staggering
+ * Only transform and opacity animate.
+ */
+
+/* ---------- Hero ---------- */
+
+.heroScene {
+  perspective: 1400px;
+}
+
+.heroRig {
+  transform-style: preserve-3d;
+  transform: rotateX(calc(9deg - var(--ry, 0) * 5deg)) rotateY(calc(-13deg + var(--rx, 0) * 7deg));
+  transition: transform 400ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  animation: heroEnter 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.heroBase {
+  transform: translateZ(0);
+}
+
+.heroFloat {
+  transform: translate3d(0, 0, 70px);
+}
+
+@keyframes heroEnter {
+  from {
+    opacity: 0;
+    transform: rotateX(20deg) rotateY(-24deg) translate3d(0, 40px, -80px);
+  }
+}
+
+/* Phones and tablets: gentler perspective, no floating overlap. */
+@media (max-width: 1023px) {
+  .heroScene {
+    perspective: 2200px;
+  }
+  .heroRig {
+    transform: rotateX(6deg) rotateY(-5deg);
+  }
+  .heroFloat {
+    transform: none;
+  }
+}
+
+/* ---------- Sticky story stage (desktop) ---------- */
+
+.stage {
+  perspective: 1600px;
+}
+
+.stageRig {
+  transform-style: preserve-3d;
+  transform: rotateX(7deg) rotateY(-11deg);
+}
+
+/* The base dashboard recedes while a story layer is in front of it. */
+.stageBase {
+  transform: translate3d(0, 0, calc(var(--focus, 0) * -90px));
+  opacity: calc(1 - var(--focus, 0) * 0.55);
+  transition: opacity 120ms linear;
+}
+
+/*
+ * A story layer rises from below and from depth as its scene arrives, and
+ * keeps moving up and back as the next scene takes over.
+ */
+.layer {
+  opacity: var(--v, 0);
+  transform: translate3d(0, calc(var(--d, 1) * -70px), calc((var(--v, 0) - 1) * 180px + 60px));
+  will-change: transform, opacity;
+}
+
+/* Transactions arrive one after another as the scene progresses. */
+.row {
+  --t: clamp(0, calc(var(--v, 0) * 13 - var(--i, 0)), 1);
+  opacity: var(--t);
+  transform: translate3d(0, calc((1 - var(--t)) * 28px), calc((1 - var(--t)) * 70px));
+}
+
+/* Category bars grow with their layer. */
+.bar {
+  transform: scaleX(var(--v, 0));
+  transform-origin: left center;
+}
+
+/* ---------- Reduced motion: no tilt, parallax, or entrance animation ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .heroRig,
+  .heroFloat,
+  .stageRig,
+  .stageBase,
+  .layer,
+  .row {
+    transform: none;
+    transition: none;
+    animation: none;
+  }
+  .row,
+  .stageBase {
+    opacity: 1;
+  }
+  .bar {
+    transform: none;
+  }
+}

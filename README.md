@@ -59,7 +59,7 @@ npm install
 | `npm run test:watch`| Re-run unit tests on file changes                                     |
 | `npm run test:e2e`  | Run the Playwright browser tests against the production build (run `npm run build` first) |
 
-`npm run dev` redirects `/` to `/dashboard`.
+`npm run dev` serves the landing page at `/` (SW-011); the app starts at `/dashboard`. Before SW-011, `/` redirected to `/dashboard`.
 
 Add shadcn/ui components when a feature needs them:
 
@@ -73,6 +73,7 @@ npx shadcn@latest add <component>
 spendwise/
 ├── src/
 │   ├── app/                        # App Router: routes, layouts, global styles
+│   │   ├── page.tsx                # Landing page at "/" (SW-011): static, outside the (app) group
 │   │   ├── (app)/                  # Route group: pages that share the app shell
 │   │   │   ├── layout.tsx          # Shell: sidebar + header + main content
 │   │   │   ├── dashboard/page.tsx
@@ -102,6 +103,10 @@ spendwise/
 │   │   │   ├── category-form-dialog.tsx # Add/edit category: name, type, icon, color
 │   │   │   ├── archive-category-dialog.tsx # Archive confirmation (alert dialog)
 │   │   │   └── category-icon-badge.tsx # Category icon on its color
+│   │   ├── landing/
+│   │   │   ├── story-visuals.tsx   # Faux-3D financial cards (hero, breakdown, transactions, net, privacy)
+│   │   │   ├── landing-motion.tsx  # Scroll and pointer effects via CSS variables (no React state)
+│   │   │   └── landing.module.css  # Perspective, depth layers, stagger, reduced-motion rules
 │   │   ├── export/
 │   │   │   └── csv-export-menu.tsx # "Export CSV" dropdown: builds and downloads a chosen dataset
 │   │   ├── onboarding/
@@ -154,6 +159,8 @@ spendwise/
 │   │   │   ├── reports-csv.ts      # Monthly summary and breakdown CSVs from the report selectors
 │   │   │   ├── csv-test-helpers.ts # Test-only RFC 4180 parser for round-trip checks
 │   │   │   └── *.test.ts
+│   │   ├── landing/
+│   │   │   └── sample-month.ts     # Landing page sample month (centavos), totals derived from transactions
 │   │   ├── profile/
 │   │   │   ├── profile.ts          # Local profile type, name rules, storage key and parsing, greeting
 │   │   │   ├── controller.ts       # Loads/saves the profile (write first, then update state)
@@ -184,7 +191,7 @@ spendwise/
 │       └── finance.ts              # Account, Category, Transaction, MonthlySummary
 ├── components.json                 # shadcn/ui configuration
 ├── eslint.config.mjs               # ESLint flat config
-├── next.config.ts                  # Next.js config (Cache Components, `/` redirect)
+├── next.config.ts                  # Next.js config (Cache Components; the `/` redirect was removed in SW-011)
 ├── postcss.config.mjs              # Tailwind CSS v4 PostCSS plugin
 ├── tsconfig.json                   # TypeScript config (strict mode, `@/*` → `src/*`)
 ├── vitest.config.mts               # Vitest config (mirrors the `@/*` alias)
@@ -192,6 +199,7 @@ spendwise/
 ├── e2e/                            # Browser tests for critical journeys (SW-009)
 │   ├── fixtures.ts                 # Deterministic Jan–Feb 2026 dataset, storage seeding, axe helper
 │   ├── onboarding.spec.ts          # SW-010: onboarding, demo mode, clearing demo data, profile, existing users
+│   ├── landing.spec.ts             # SW-011: landing CTA, story text, nav, scroll stage, tilt, reduced motion, overflow
 │   ├── transactions.spec.ts        # Scenario B: create/edit/delete each type, totals after every step
 │   ├── accounts-categories.spec.ts # Scenarios C–D: account and category lifecycles
 │   ├── backup-csv.spec.ts          # Scenarios E–F: JSON backup/restore, CSV exports and failures
@@ -207,7 +215,7 @@ A `src/hooks` folder will be added only when a milestone needs it.
 
 | Path            | Page                                   | Milestone                                                   |
 | --------------- | -------------------------------------- | ----------------------------------------------------------- |
-| `/`             | Redirects to `/dashboard` (temporary 307, set in `next.config.ts`) | SW-002                          |
+| `/`             | Landing page: scroll-driven faux 3D story (static) | SW-011 (done). SW-002 to SW-010: redirected to `/dashboard` |
 | `/dashboard`    | Financial summary dashboard            | SW-003 (done)                                               |
 | `/transactions` | Transaction table with add/edit/delete and CSV export | SW-004 (done), SW-005 (done), SW-008C (done: CSV export) |
 | `/accounts`     | Account management (`?new=1` opens Add account) | SW-006 (done), SW-010 (`?new=1`)                   |
@@ -1159,6 +1167,66 @@ The onboarding notice and **Settings → Privacy & data** say:
 - JSON backups are **unchanged**: schema version 1, financial records only. They don't include the profile (name, mode, acknowledgement) or the theme, and Settings says so. Old backups restore as before, and new backups restore in older SW-008A/B/C builds.
 - **Restoring never changes the profile name.** A restored backup is treated as the person's own data, so the mode becomes **personal** (tested from demo mode). Validation, atomicity, archived records, and relationships are unchanged. An invalid file changes nothing.
 
+## Landing page (SW-011)
+
+`/` is a cinematic, scroll-driven landing page that tells a financial story in six scenes: **monitor your money → understand your spending → see what remains → make smarter saving decisions**. It uses faux 3D: CSS `perspective`, `transform-style: preserve-3d`, `translate3d`, and `rotateX`/`rotateY` on layered DOM cards. There's **no WebGL, Three.js, video, or new dependency**, and no motion library was installed, because a ~100-line script and a CSS module were enough.
+
+### Scenes
+
+| # | Headline | What happens |
+| --- | --- | --- |
+| 1 | **Know Where Your Money Goes.** | Hero with a floating, tilted dashboard and an income card in front of it. **Start Tracking for Free** is visible and usable immediately. |
+| 2 | **Where Does Your Money Go?** | Expenses grouped into Food, Bills, Transportation, and Other, with exact shares; category bars grow in. |
+| 3 | **Every Peso Has a Story.** | 11 sample transactions stack in one by one and add up exactly to the category totals. |
+| 4 | **See What Remains.** | Income minus expenses becomes net cash flow. The copy says it **isn't money saved yet**, but knowing it helps decide how much to set aside. |
+| 5 | **Your Money. Your Data. Your Control.** | localStorage storage, no registration, no automatic cloud sync, clearing site data can erase records, JSON backups recommended. |
+| 6 | **Make Every Peso Count.** | Final CTA **Start Tracking Now**. |
+
+Every CTA and the **Open App** button go to `/dashboard`, where SW-010 onboarding greets new visitors. The header links to **Features**, **How It Works**, and **Privacy**, which are anchors on the page.
+
+### Sample numbers
+
+All amounts come from `src/lib/landing/sample-month.ts`, in integer centavos, and are formatted with the app's own `formatCurrency` and `formatPercentOf`. Every total is **derived from the 11 transactions**: Food ₱8,450.00 + Bills ₱6,200.00 + Transportation ₱2,350.00 + Other ₱3,000.00 = ₱20,000.00 in expenses, and ₱45,000.00 income − ₱20,000.00 = ₱25,000.00 net cash flow. A unit test checks the reconciliation and the shares (42.3%, 31.0%, 11.8%, 15.0%). The page labels the figures as sample data in the cards, the hero, and the footer.
+
+### How the scrollytelling works
+
+- **Static and server-rendered.** `src/app/page.tsx` is a server component prerendered at build time (`○ /`). Every headline, number, and link is in the HTML. The page sits outside the `(app)` route group, so it **never reads or writes saved data** (tested).
+- **Native scrolling.** The story is a normal two-column layout: scene text on the left, and on the right a CSS `position: sticky` stage. Nothing is pinned by JavaScript, scrolling isn't hijacked, no animation has to finish, and scrolling back up reverses everything (tested). Each scene is about 78% of the viewport tall, so the story isn't padded with long scroll distances.
+- **No React state while scrolling.** `LandingMotion`, a client component that renders nothing, listens to `scroll` passively, updates at most once per animation frame, and writes CSS custom properties directly to the DOM:
+  - Each stage layer gets `--v` (visibility, 0–1) and `--d` (position relative to its scene, −1–1).
+  - The dashboard behind gets `--focus`, so it recedes while a layer is in front.
+  - The page gets `--page-progress` for the thin progress bar at the top.
+  - The hero's 3D rig gets `--rx`/`--ry` from the pointer.
+- **Transforms and opacity only** (`landing.module.css`). Layers rise from depth (`translate3d` on Z) as their scene arrives and drift up and back as the next one takes over. Transaction rows stagger with `clamp()` on `--v` and their index. Category bars scale in. Blur isn't used; glows are a single radial gradient.
+- **Pointer tilt** applies on the hero only, with a fine pointer at 1024px or wider, never on touch devices.
+- **Visuals are decorative copies.** The cards are `aria-hidden`, and every fact they show is also in the scene text (the transaction list is a visually hidden list for screen readers), so nothing depends on seeing the animation.
+
+### Mobile and reduced motion
+
+- **Below 1024px:** no sticky stage. Each scene shows its own card inline and flat, with gentler perspective on the hero, no floating overlap, and no pointer effects. There's no horizontal overflow at 375, 768, 1280, or 1920px (tested). The header keeps the brand, theme menu, and **Open App**. The section anchors are hidden below 768px, but the hero's "See how it works" link remains.
+- **`prefers-reduced-motion: reduce`:** no tilt, parallax, entrance animation, or 3D transforms. The stage is hidden and the story becomes one readable column with every card shown statically. The CTAs and navigation are unchanged (tested). The global SW-009 reduced-motion rule also applies.
+
+### Performance (measured)
+
+Measured in headless Chromium against the production build:
+
+| Measurement | Desktop 1440px | Mobile 375px |
+| --- | --- | --- |
+| Scrolling the whole page down and back up | 137 frames, 95th percentile 17 ms, max 33 ms, none over 50 ms | 195 frames, 95th percentile 17 ms, max 17 ms, none over 50 ms |
+| Cumulative layout shift | 0 | 0 |
+| Largest contentful paint (local server) | 104 ms | 72 ms |
+| Scripts referenced by the HTML (gzip) | 244 KB: Next.js runtime, React, and the Base UI theme menu | same |
+
+After load, Next.js prefetches the `/dashboard` route behind the CTA links (including Zod), so clicking into the app is fast. Those chunks aren't on the landing page's critical path.
+
+### Accessibility
+
+One `h1` per page, with scenes as `article`s labelled by their headings. No structural axe violations in light or dark mode (tested). CTAs are real links, keyboard-reachable, with visible focus rings. The progress bar and visuals are hidden from assistive technology. Contrast follows the existing theme tokens, so the open D-2 item applies to tinted chips, as elsewhere.
+
+### Privacy claims
+
+The scene 5 statements repeat what SW-010 verified with a network capture: data stays in localStorage, there's no account, no cloud sync, clearing site data erases it, and JSON backups restore it. They avoid claiming that "nothing is collected", since hosting logs can't be verified from the repo.
+
 ## Testing
 
 ```bash
@@ -1168,7 +1236,7 @@ npm run build        # production build (needed before browser tests)
 npm run test:e2e     # browser tests (Playwright, Chromium)
 ```
 
-**Browser tests (SW-009, extended in SW-010)** in `e2e/` run against the production build. `onboarding.spec.ts` covers the new-visitor flow (validation, Back, the acknowledgement), demo mode and clearing it, existing-user migration, no onboarding flash for returning users, profile editing, restoring a backup in demo mode, keyboard-only onboarding with axe checks, and the mobile scroll position. Other specs seed a finished profile so they skip onboarding. The test runner: Playwright starts `next start -p 3100`, or reuses a server already on that port. Each test seeds its own deterministic dataset (January–February 2026) into `localStorage` before the app loads, so results don't depend on the demo data or today's date. Tests use roles, labels, and visible text, not CSS classes. Accessibility checks inject the installed `axe-core` and run its WCAG 2.2 A/AA rules. The first run needs a Playwright Chromium (`npx playwright install chromium`, about 170 MB, stored outside the repo).
+**Browser tests (SW-009, extended in SW-010 and SW-011)** in `e2e/` run against the production build. `landing.spec.ts` covers the immediately usable CTA leading into onboarding, the story text and reconciled numbers, nav anchors, the sticky stage following native scroll forwards and backwards, pointer tilt on desktop only, reduced motion, overflow at four widths, axe in both themes, and that the landing page never touches saved data. `onboarding.spec.ts` covers the new-visitor flow (validation, Back, the acknowledgement), demo mode and clearing it, existing-user migration, no onboarding flash for returning users, profile editing, restoring a backup in demo mode, keyboard-only onboarding with axe checks, and the mobile scroll position. Other specs seed a finished profile so they skip onboarding. The test runner: Playwright starts `next start -p 3100`, or reuses a server already on that port. Each test seeds its own deterministic dataset (January–February 2026) into `localStorage` before the app loads, so results don't depend on the demo data or today's date. Tests use roles, labels, and visible text, not CSS classes. Accessibility checks inject the installed `axe-core` and run its WCAG 2.2 A/AA rules. The first run needs a Playwright Chromium (`npx playwright install chromium`, about 170 MB, stored outside the repo).
 
 Why Playwright: earlier milestones' browser checks were one-off scripts. A committed suite makes the critical journeys repeatable. The cost is a dev-only dependency that never ships to users. Component tests (jsdom/React Testing Library) weren't added, because the browser tests cover the same integration paths against the real build without a second test environment.
 
@@ -1227,6 +1295,7 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Existing users: records kept and not rewritten by default, demo-looking data treated as personal, explicit start-fresh replaces them (and changes nothing if the save fails), empty snapshots kept, corrupt or unsupported data never onboarded over.
   - Clearing demo data: whole-workspace replacement including edits made while exploring, profile and acknowledgement kept, no re-seeding after refresh, nothing changed on save failure or other-tab conflict.
   - Greeting: Asia/Manila time-of-day boundaries.
+- Landing sample month (SW-011, `src/lib/landing/sample-month.test.ts`): transactions → categories → expenses → net cash flow reconcile; integer centavos; exact shares.
 - CSV export (`src/lib/export/*.test.ts`):
   - Escaping: commas, double quotes, CR/LF and multi-line text, leading/trailing spaces; CRLF line endings; BOM bytes; round trips through a reference RFC 4180 parser; Unicode (ñ, ₱, –, emoji, CJK).
   - Formula injection: `=`, `+`, `-`, `@`, `HYPERLINK`/DDE payloads, leading whitespace and control-character bypasses, full-width characters; safe text left alone; number cells never prefixed and rejected if not plain decimals.
@@ -1290,6 +1359,10 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Personal or demo workspace; Demo mode badge; Clear Demo Data & Start Fresh (confirmed, atomic)
   - New personal workspaces start with starter categories and a "Let's set up your finances" dashboard
   - Settings → Privacy & data with verified, accurate storage and privacy disclosures
+- **SW-011:** cinematic faux 3D landing page at `/`
+  - Six-scene scroll story (money in, money out, every peso, what remains, privacy, final CTA) with a sticky 3D stage
+  - Native scrolling, CSS-variable motion without React re-renders, pointer tilt on desktop
+  - Flat inline layout on mobile and with reduced motion; reconciled sample numbers; verified privacy copy
 
 ## Development progress
 
@@ -1307,6 +1380,7 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - [x] **SW-008C** — CSV export (transactions: filtered or all; reports: monthly summary and expense breakdowns; formula-injection protection)
 - [x] **SW-009** — Frontend MVP audit and stabilization (conditional pass: browser test suite, 6 defects found, 5 fixed, D-2 contrast open pending a design decision)
 - [x] **SW-010** — Onboarding, local profile, demo data management, and privacy (conditional pass: D-2 contrast still open)
+- [x] **SW-011** — Cinematic faux 3D scrollytelling landing page
 - Backend and API development: postponed indefinitely unless requested. Future milestones focus on local-first improvements.
 
 ### Milestone dependencies
@@ -1357,6 +1431,7 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - Filters, sort order, and page aren't kept in the URL, so a filtered view can't be bookmarked or shared. With Cache Components, Next.js keeps up to three recently visited pages mounted (hidden with React `<Activity>`), so filters survive moving between pages; a full refresh resets them.
 - On mobile the six filter controls stack vertically and take up a lot of space before the results.
 - Search matches descriptions and category names, not account names or amounts.
+- Landing page: the section anchor links are hidden below 768px (the hero's "See how it works" remains). Without JavaScript, the desktop 3D stage stays empty, but all text and numbers remain. Browsers without CSS `clamp()` or `preserve-3d` show flat cards. Only Chromium was tested.
 - The demo dataset is fixed to July–November 2026. In later months, the demo dashboard defaults to a month with no data. Every month from July 2026 onward stays selectable.
 - The profile and the financial data use two storage keys, which can't be written atomically together. Each step is ordered and safe to retry: the workspace is created first, then the profile. If the profile can't be saved, onboarding stays open and retrying doesn't create a second workspace. A failure between them leaves at most a mismatched demo/personal label, never lost records.
 - JSON backups don't include the profile (name, mode, acknowledgement). After restoring on a new browser, onboarding asks for a name again (profile-only flow).

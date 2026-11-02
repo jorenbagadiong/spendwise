@@ -3,13 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
-  async redirects() {
-    return [
-      // The dashboard is the app's home. A config redirect runs before any
-      // rendering, so "/" never needs a page of its own.
-      { source: "/", destination: "/dashboard", permanent: false },
-    ];
-  },
+  // "/" is the landing page (SW-011, src/app/page.tsx). Until then it
+  // redirected to /dashboard, which is still the app's entry point.
 };
 
 export default nextConfig;
