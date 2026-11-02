@@ -82,6 +82,13 @@ export type Transaction =
   | ExpenseTransaction
   | TransferTransaction;
 
+/** A transaction before it has an id (e.g. new form input). */
+export type TransactionInput = Transaction extends infer T
+  ? T extends Transaction
+    ? Omit<T, "id">
+    : never
+  : never;
+
 export type MonthlySummary = {
   month: MonthKey;
   transactionCount: number;

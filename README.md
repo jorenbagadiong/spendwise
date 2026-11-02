@@ -17,8 +17,11 @@ The project is built frontend-first: the UI and data handling run entirely in th
 | Theming       | [next-themes](https://github.com/pacocoursey/next-themes) (light/dark/system) | 0.4.6 |
 | Linting       | ESLint 9 (flat config) + `eslint-config-next`             | 9.39.5            |
 | Unit tests    | [Vitest](https://vitest.dev) (Node environment)           | 4.1.12            |
+| Shared state  | [Zustand](https://zustand.docs.pmnd.rs) (in-memory transaction store) | 5.0.16 |
+| Forms         | [React Hook Form](https://react-hook-form.com) + `@hookform/resolvers` | 7.91.0 / 7.0.1 |
+| Validation    | [Zod](https://zod.dev)                                    | 4.6.7             |
 
-Planned for later milestones (not installed yet): Zustand (shared state, only if needed), React Hook Form + Zod (forms), and `localStorage` persistence.
+Planned for later milestones: `localStorage` persistence (SW-008).
 
 Vitest 4 is used instead of Vitest 5 because Vitest 5 requires Node.js 22.12+, and this project supports Node.js 20.9+.
 
@@ -85,8 +88,11 @@ spendwise/
 │   │   │   ├── financial-dashboard.tsx # Month selector, summary cards, empty state (client)
 │   │   │   └── summary-card.tsx    # Reusable summary card (title, value, icon, tone)
 │   │   ├── transactions/
-│   │   │   └── transactions-view.tsx # Filters, table/list, empty states, pagination (client)
-│   │   └── ui/                     # shadcn/ui components (button, card, dropdown-menu, input, select, sheet, table)
+│   │   │   ├── transactions-view.tsx # Filters, table/list, row actions, notices, pagination (client)
+│   │   │   ├── transaction-form-dialog.tsx # Add/edit form (React Hook Form + Zod) in a dialog
+│   │   │   └── delete-transaction-dialog.tsx # Delete confirmation (alert dialog)
+│   │   └── ui/                     # shadcn/ui components (alert-dialog, button, card, dialog, dropdown-menu,
+│   │                               #   field, input, label, select, separator, sheet, table)
 │   ├── config/
 │   │   └── navigation.ts           # Routes, titles, descriptions, icons (single source)
 │   ├── data/
@@ -98,9 +104,14 @@ spendwise/
 │   │   │   ├── money.ts            # formatCurrency (centavos → "₱1,234.56")
 │   │   │   ├── months.ts           # Month keys, labels, Asia/Manila "today", reporting cutoff
 │   │   │   ├── transactions.ts     # Pure filter, sort, paginate, and amount display helpers
+│   │   │   ├── transaction-form.ts # Form values, Zod schema, pesos → centavos for the form
 │   │   │   ├── validation.ts       # Business rules TypeScript can't express
 │   │   │   └── *.test.ts           # Unit tests next to the code they test
 │   │   └── utils.ts                # Shared helpers (`cn` class-name merging)
+│   ├── stores/
+│   │   ├── transaction-store.ts    # Zustand store factory: transactions + add/update/delete
+│   │   ├── transaction-store-provider.tsx # React context provider and useTransactionStore hook
+│   │   └── transaction-store.test.ts
 │   └── types/
 │       └── finance.ts              # Account, Category, Transaction, MonthlySummary
 ├── components.json                 # shadcn/ui configuration
@@ -112,7 +123,7 @@ spendwise/
 └── AGENTS.md                       # Next.js-generated notes for AI coding agents
 ```
 
-Future folders (`src/stores`, `src/hooks`) will be added only when a milestone needs them.
+A `src/hooks` folder will be added only when a milestone needs it.
 
 ## Routes
 
@@ -120,7 +131,7 @@ Future folders (`src/stores`, `src/hooks`) will be added only when a milestone n
 | --------------- | -------------------------------------- | ----------------------------------------------------------- |
 | `/`             | Redirects to `/dashboard` (temporary 307, set in `next.config.ts`) | SW-002                          |
 | `/dashboard`    | Financial summary dashboard            | SW-003 (done)                                               |
-| `/transactions` | Transaction table with filters         | SW-004 (done), SW-005 (add/edit/delete)                     |
+| `/transactions` | Transaction table with add/edit/delete | SW-004 (done), SW-005 (done)                                |
 | `/accounts`     | Accounts (placeholder)                 | SW-006                                                      |
 | `/categories`   | Categories (placeholder)               | SW-007                                                      |
 | `/reports`      | Reports (placeholder)                  | SW-008                                                      |
@@ -158,15 +169,16 @@ Defined in `src/types/finance.ts`.
   - `income` / `expense`: require `categoryId` and can't have `destinationAccountId`.
   - `transfer`: requires `destinationAccountId` and can't have `categoryId`.
   - `amount` is always a positive integer. The type decides the direction.
-- **Rules TypeScript can't check** live in `validateTransaction` (`src/lib/finance/validation.ts`):
+- **`TransactionInput`** is a transaction without an `id` (what forms produce). It keeps the same discriminated union.
+- **Rules TypeScript can't check** live in `validateTransaction` (`src/lib/finance/validation.ts`). Each problem is returned as `{ field, message }` so forms can show it next to the right input:
   - Transfer source and destination accounts are different.
   - Amounts are positive integers.
-  - Dates are well-formed and not before the account's opening date.
+  - Dates are real calendar dates (`2026-02-30` is rejected) and not before the account's opening date.
   - Accounts and categories exist, and the category type matches the transaction type.
 
 ## Mock data
 
-`src/data/mock-finance.ts` holds fixed sample data in Philippine pesos. It is plain data, separate from the UI, and never randomly generated.
+`src/data/mock-finance.ts` holds fixed sample data in Philippine pesos. It is plain data, separate from the UI, and never randomly generated. Since SW-005, the mock transactions seed the in-memory store; the accounts and categories are still read directly.
 
 - **Accounts (opened Jul 1, 2026):**
   - BPI Savings (bank, ₱45,000.00)
@@ -242,7 +254,7 @@ Rules:
 
 ## Transactions table (SW-004)
 
-`/transactions` shows the mock transactions in a spreadsheet-style table. It is read-only; adding, editing, and deleting arrive in SW-005.
+`/transactions` shows the transactions in a spreadsheet-style table. Adding, editing, and deleting were added in SW-005 (see below).
 
 ### Columns
 
@@ -306,6 +318,76 @@ Newest first (default), oldest first, highest amount, or lowest amount. Sorting 
 
 The filter, sort, and page state is local React state. Like the dashboard, the page computes "today" on the server per request so the default month matches between the server and the browser.
 
+## Transaction CRUD (SW-005)
+
+Transactions can be added, edited, and deleted on `/transactions`.
+
+> **Transactions are currently stored in memory and reset after a full browser refresh. Persistent localStorage support is planned for SW-008.**
+
+### Add and edit
+
+- **Add transaction** opens a dialog. Each row has **Edit** and **Delete** buttons (icon buttons in the table, labelled buttons in the mobile list).
+- The form defaults to **Expense**, dated today (Asia/Manila). The type selector (Expense, Income, Transfer) is a radio group, so arrow keys switch between types.
+- The fields adapt to the type:
+
+| Type     | Account field                    | Second field                     |
+| -------- | -------------------------------- | -------------------------------- |
+| Expense  | Paid from                        | Category (expense categories)    |
+| Income   | Received in                      | Category (income categories)     |
+| Transfer | From account                     | To account (no category)         |
+
+- Changing the type clears a category or destination that no longer applies.
+- Account lists show active accounts only.
+- **Edit** opens the same form filled with the transaction's values. Any field can change, including the type. Saving replaces the record and keeps its id.
+- Validation errors appear inline under each field. Invalid fields are marked `aria-invalid` and the messages are announced. The dialog stays open until the form is valid.
+- After saving, the dialog closes and a message confirms it ("Added “Lunch”."). **Filters are never reset.** If the saved record doesn't match the current filters, the message says "It's hidden by the current filters."
+- If the record being edited no longer exists, the form shows "This transaction no longer exists" instead of creating a duplicate.
+
+### Delete
+
+- **Delete** opens a confirmation dialog showing the description, signed amount, and date.
+- **Cancel** (or Escape) leaves the data unchanged. **Delete** removes the record. Focus then moves to the Add transaction button, because the deleted row's button no longer exists.
+- Deletion is permanent for this in-memory prototype. Audit history will be revisited with the backend.
+
+### Validation rules
+
+The form uses React Hook Form with a Zod schema (`createTransactionFormSchema` in `src/lib/finance/transaction-form.ts`). The schema's account and category checks reuse the SW-003 `validateTransaction` rules.
+
+| Field        | Rules                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------- |
+| Amount       | Required, greater than zero, at most two decimals, at most ₱999,999,999.99. Digits with optional correctly grouped commas (`1,250.50`). Rejects `1e3`, `Infinity`, `NaN`, `-5`, `.5`, `12.`, `₱100`, and `1.234`. **Never rounded.** |
+| Date         | A real calendar date, not before the account's opening date                                              |
+| Description  | Required, not whitespace-only, at most 120 characters, trimmed when saved                                |
+| Account(s)   | Must exist and be active. A transfer's source and destination must differ.                               |
+| Category     | Required for income and expenses, must exist and match the type. Transfers have no category.            |
+
+**Pesos to centavos:** `parsePesosToCentavos` (`src/lib/finance/money.ts`) converts the typed text using string operations only. `"0.29"` becomes exactly `29`, whereas `0.29 * 100` in floating point is `28.999999999999996`.
+
+### State architecture
+
+```
+(app)/layout.tsx
+└── TransactionStoreProvider        ← creates one Zustand store, seeded with mock data
+    ├── /dashboard  → FinancialDashboard   reads  state.transactions
+    └── /transactions → TransactionsView   reads  state.transactions
+                         ├── TransactionFormDialog   calls addTransaction / updateTransaction
+                         └── DeleteTransactionDialog calls deleteTransaction
+```
+
+- **One source of truth:** the store holds the transactions array and three actions. Pages never copy transactions into their own state.
+- **Per-session store:** the store is created in a React context provider (Zustand's recommended pattern for Next.js), not as a module-level global. Each browser session, and each server request, gets its own store. It lives in the `(app)` layout, which stays mounted during client-side navigation, so the dashboard and the table always show the same data.
+- **Actions:**
+
+| Action                           | Behavior                                                                                       |
+| -------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `addTransaction(input)`          | Assigns the next id (`txn-031`, `txn-032`, …; never reuses a taken id) and returns the record  |
+| `updateTransaction(id, input)`   | Replaces the whole record (so fields from an old type don't linger), keeps the id. Returns `null` for an unknown id |
+| `deleteTransaction(id)`          | Removes the record and returns it. Returns `null` for an unknown id                            |
+
+- **Immutable updates:** every action creates a new array, so React and Zustand detect changes by reference.
+- **No stored totals:** income, expenses, net cash flow, and balances are always derived from the transactions with the SW-003 functions. Editing or deleting a transaction automatically updates every total, including the transfer effect on both accounts and historical month-end balances.
+- **No persistence:** no Zustand `persist` middleware, `localStorage`, or `sessionStorage` (planned for SW-008).
+
 ## Testing
 
 ```bash
@@ -329,6 +411,11 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
 - Sorting by date and amount, deterministic tie-breaking, and sorting filtered results
 - Empty results, pagination ranges and clamping, filter defaults
 - Immutability: filtering, sorting, and paging never change the source data
+- Store actions: creating income, expenses, and transfers; editing amounts, accounts, dates, and types; deleting; unknown ids; unique ids; per-test store isolation
+- Financial integrity after each action (balances, transfers on both accounts, month totals, historical balances, opening balances)
+- Filtering and sorting store data after adds and edits
+- Peso parsing (valid formats, malformed input, floating-point edge cases) and calendar-date validation
+- Form schema: valid income, expense, and transfer; every rejection rule; switching types
 
 ## Current features
 
@@ -347,6 +434,10 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Spreadsheet-style table on desktop, stacked list on mobile
   - Search, filters by month, type, account, and category, and four sort orders
   - Pagination and contextual empty states
+- **SW-005:** transaction CRUD
+  - Add, edit, and delete income, expenses, and transfers in dialogs
+  - React Hook Form + Zod validation with inline errors
+  - Shared Zustand store, so the dashboard and table update immediately
 
 ## Development progress
 
@@ -356,7 +447,7 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - [x] **SW-002** — Application layout (sidebar, header, mobile drawer, routes, light/dark/system theme)
 - [x] **SW-003** — Financial dashboard and mock data (summary cards, month selector, calculation utilities, unit tests)
 - [x] **SW-004** — Transactions table (spreadsheet-style, read-only view with search, filters, sorting, and pagination)
-- [ ] **SW-005** — Transaction CRUD (add, edit, and delete transactions; React Hook Form + Zod)
+- [x] **SW-005** — Transaction CRUD (add, edit, and delete transactions; React Hook Form + Zod; shared Zustand store)
 - [ ] **SW-006** — Account management (add, edit, and archive accounts; per-account balances)
 - [ ] **SW-007** — Category management (add, edit, and archive income and expense categories)
 - [ ] **SW-008** — Persistence and reports (`localStorage`, Reports page, Settings data management)
@@ -379,20 +470,23 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - **SW-002 (done):** theme preference (Light, Dark, System). It's currently set from the header theme menu and saved in `localStorage`.
 - **SW-008:** local data management, such as exporting, importing, or clearing data stored in the browser.
 
-**Next milestone:** SW-005 — Transaction CRUD.
+**Next milestone:** SW-006 — Account management.
 
 ## Current limitations
 
-- The dashboard and transactions table use fixed mock data. Transactions can't be added, edited, or deleted yet, and the Accounts, Categories, Reports, and Settings pages are still placeholders.
+- **Transactions are currently stored in memory and reset after a full browser refresh. Persistent localStorage support is planned for SW-008.** Client-side navigation between pages keeps them.
+- Accounts and categories are still fixed mock data, so the form can only choose from them. The Accounts, Categories, Reports, and Settings pages are still placeholders.
+- Deletion is permanent and has no undo or audit history.
+- Success messages appear inline above the filters. There's no toast system.
+- Once accounts can be archived (SW-006), editing an old transaction on an archived account will require choosing an active account.
 - Filters, sort order, and page aren't kept in the URL. They reset when you leave the page or refresh, and a filtered view can't be bookmarked or shared.
 - On mobile the six filter controls stack vertically and take up a lot of space before the results.
 - Search matches descriptions and category names, not account names or amounts.
-- No data persistence apart from the theme choice. Nothing else is saved between sessions.
 - Mock data is fixed to July–November 2026. In later months, the dashboard will default to a month with no data. Every month from July 2026 onward stays selectable.
 - Months are listed in a single dropdown. Once data spans many years, a year selector may be needed.
 - The header date is formatted in the browser after load, so it appears a moment after the rest of the header. It shows the Asia/Manila date (matching the dashboard) in the browser's locale format, and doesn't update if the page stays open past midnight.
 - Chart color tokens (`--chart-1` to `--chart-5`) are still the shadcn/ui grayscale defaults and will be themed when charts are added.
-- Unit tests cover the finance logic only. There are no component or end-to-end tests in the repo; the SW-002 to SW-004 browser checks were run manually with Playwright.
+- Unit tests cover the finance logic, form schema, and store. There are no component or end-to-end tests in the repo; the SW-002 to SW-005 browser checks were run manually with Playwright.
 
 ## Planned backend integration
 

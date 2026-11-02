@@ -9,6 +9,7 @@ import {
   getSelectableMonths,
   getTodayInManila,
   isMonthKey,
+  isValidIsoDate,
   listMonths,
 } from "@/lib/finance/months";
 
@@ -74,5 +75,18 @@ describe("getSelectableMonths", () => {
 
   it("offers only the current month when there is no data", () => {
     expect(getSelectableMonths([], "2026-10-05")).toEqual(["2026-10"]);
+  });
+});
+
+describe("isValidIsoDate", () => {
+  it("accepts real calendar dates", () => {
+    expect(isValidIsoDate("2026-11-02")).toBe(true);
+    expect(isValidIsoDate("2028-02-29")).toBe(true);
+  });
+
+  it("rejects impossible or malformed dates", () => {
+    for (const value of ["2026-02-29", "2026-02-30", "2026-04-31", "2026-13-01", "2026-00-10", "2026-1-5", "", "not a date", "2026-11-02T00:00"]) {
+      expect(isValidIsoDate(value), value).toBe(false);
+    }
   });
 });

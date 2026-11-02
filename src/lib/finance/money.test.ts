@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { formatCurrency } from "@/lib/finance/money";
+import {
+  formatCentavosForInput,
+  formatCurrency,
+  parsePesosToCentavos,
+} from "@/lib/finance/money";
 
 describe("formatCurrency", () => {
   it.each([
@@ -31,5 +35,67 @@ describe("formatCurrency", () => {
 
   it("rejects fractional centavos", () => {
     expect(() => formatCurrency(10.5)).toThrow(RangeError);
+  });
+});
+
+describe("parsePesosToCentavos", () => {
+  it.each([
+    ["1", 100],
+    ["1250", 125_000],
+    ["1250.5", 125_050],
+    ["1250.50", 125_050],
+    ["1,250.50", 125_050],
+    ["1,234,567.89", 123_456_789],
+    ["0.10", 10],
+    ["0.01", 1],
+    ["  18500 ", 1_850_000],
+    ["007.5", 750],
+    ["999999999.99", 99_999_999_999],
+  ])("parses %s as %i centavos", (input, expected) => {
+    expect(parsePesosToCentavos(input)).toEqual({ ok: true, value: expected });
+  });
+
+  it("is exact where floating-point math is not", () => {
+    // 0.29 * 100 is 28.999999999999996 in floating point.
+    expect(parsePesosToCentavos("0.29")).toEqual({ ok: true, value: 29 });
+    expect(parsePesosToCentavos("1.15")).toEqual({ ok: true, value: 115 });
+  });
+
+  it.each([
+    ["", "Enter an amount."],
+    ["   ", "Enter an amount."],
+    ["0", "Amount must be greater than zero."],
+    ["0.00", "Amount must be greater than zero."],
+    ["-5", "Amount must be greater than zero."],
+    ["1.234", "Use at most two decimal places."],
+    ["1,250.555", "Use at most two decimal places."],
+    ["abc", "Enter a valid amount, like 1250 or 1,250.50."],
+    ["1e3", "Enter a valid amount, like 1250 or 1,250.50."],
+    ["Infinity", "Enter a valid amount, like 1250 or 1,250.50."],
+    ["NaN", "Enter a valid amount, like 1250 or 1,250.50."],
+    ["12.", "Enter a valid amount, like 1250 or 1,250.50."],
+    [".5", "Enter a valid amount, like 1250 or 1,250.50."],
+    ["1,23.00", "Enter a valid amount, like 1250 or 1,250.50."],
+    ["12,50", "Enter a valid amount, like 1250 or 1,250.50."],
+    ["₱100", "Enter a valid amount, like 1250 or 1,250.50."],
+    ["1 000", "Enter a valid amount, like 1250 or 1,250.50."],
+    ["0x10", "Enter a valid amount, like 1250 or 1,250.50."],
+    ["1000000000", "Amount is too large."],
+  ])("rejects %j", (input, error) => {
+    expect(parsePesosToCentavos(input)).toEqual({ ok: false, error });
+  });
+});
+
+describe("formatCentavosForInput", () => {
+  it("formats centavos as an editable peso value", () => {
+    expect(formatCentavosForInput(125_050)).toBe("1250.50");
+    expect(formatCentavosForInput(5)).toBe("0.05");
+    expect(formatCentavosForInput(1_850_000)).toBe("18500.00");
+  });
+
+  it("round-trips through parsePesosToCentavos", () => {
+    for (const amount of [1, 99, 100, 123_456, 99_999_999_999]) {
+      expect(parsePesosToCentavos(formatCentavosForInput(amount))).toEqual({ ok: true, value: amount });
+    }
   });
 });

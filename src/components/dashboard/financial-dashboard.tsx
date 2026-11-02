@@ -25,20 +25,21 @@ import {
   getMonthKey,
   getSelectableMonths,
 } from "@/lib/finance/months";
-import type { Account, IsoDate, MonthKey, Transaction } from "@/types/finance";
+import { useTransactionStore } from "@/stores/transaction-store-provider";
+import type { Account, IsoDate, MonthKey } from "@/types/finance";
 
 type FinancialDashboardProps = {
   accounts: readonly Account[];
-  transactions: readonly Transaction[];
   /** Today in Asia/Manila, computed on the server so both renders agree. */
   today: IsoDate;
 };
 
 export function FinancialDashboard({
   accounts,
-  transactions,
   today,
 }: FinancialDashboardProps) {
+  // Shared with the transactions page, so edits there show up here.
+  const transactions = useTransactionStore((state) => state.transactions);
   const monthSelectLabelId = useId();
   const [month, setMonth] = useState<MonthKey>(getMonthKey(today));
 

@@ -1,29 +1,34 @@
-import type { Account, Category, Transaction } from "@/types/finance";
+import type { Account, Category, TransactionInput } from "@/types/finance";
+import { isValidIsoDate } from "@/lib/finance/months";
 
-const ISO_DATE_PATTERN = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+export type ValidationIssue = {
+  field: "amount" | "date" | "accountId" | "destinationAccountId" | "categoryId";
+  message: string;
+};
 
 /**
- * Rules the type system can't express. Returns a list of problems; an empty
- * list means the transaction is valid. Forms (SW-005+) will reuse this.
+ * Rules the type system can't express. Returns a list of problems, each
+ * tagged with the field it belongs to so forms can show it inline; an empty
+ * list means the transaction is valid.
  */
 export function validateTransaction(
-  transaction: Transaction,
+  transaction: TransactionInput,
   accounts: readonly Account[],
   categories: readonly Category[],
-): string[] {
-  const errors: string[] = [];
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
   const account = accounts.find((a) => a.id === transaction.accountId);
 
   if (!Number.isSafeInteger(transaction.amount) || transaction.amount <= 0) {
-    errors.push("Amount must be a positive whole number of centavos.");
+    issues.push({ field: "amount", message: "Amount must be a positive whole number of centavos." });
   }
-  if (!ISO_DATE_PATTERN.test(transaction.date)) {
-    errors.push("Date must be formatted YYYY-MM-DD.");
+  if (!isValidIsoDate(transaction.date)) {
+    issues.push({ field: "date", message: "Date must be a real calendar date (YYYY-MM-DD)." });
   }
   if (!account) {
-    errors.push(`Unknown account: ${transaction.accountId}.`);
+    issues.push({ field: "accountId", message: "Choose an existing account." });
   } else if (transaction.date < account.openingDate) {
-    errors.push(`Date is before ${account.name} was opened.`);
+    issues.push({ field: "date", message: `Date is before ${account.name} was opened.` });
   }
 
   if (transaction.type === "transfer") {
@@ -31,23 +36,27 @@ export function validateTransaction(
       (a) => a.id === transaction.destinationAccountId,
     );
     if (transaction.destinationAccountId === transaction.accountId) {
-      errors.push("Transfer source and destination must be different accounts.");
+      issues.push({
+        field: "destinationAccountId",
+        message: "Transfer source and destination must be different accounts.",
+      });
     }
     if (!destination) {
-      errors.push(`Unknown destination account: ${transaction.destinationAccountId}.`);
+      issues.push({ field: "destinationAccountId", message: "Choose an existing account." });
     } else if (transaction.date < destination.openingDate) {
-      errors.push(`Date is before ${destination.name} was opened.`);
+      issues.push({ field: "date", message: `Date is before ${destination.name} was opened.` });
     }
   } else {
     const category = categories.find((c) => c.id === transaction.categoryId);
     if (!category) {
-      errors.push(`Unknown category: ${transaction.categoryId}.`);
+      issues.push({ field: "categoryId", message: "Choose an existing category." });
     } else if (category.type !== transaction.type) {
-      errors.push(
-        `${category.name} is an ${category.type} category and can't be used for ${transaction.type}.`,
-      );
+      issues.push({
+        field: "categoryId",
+        message: `${category.name} is an ${category.type} category and can't be used for ${transaction.type}.`,
+      });
     }
   }
 
-  return errors;
+  return issues;
 }

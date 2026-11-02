@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 
 import { TransactionsView } from "@/components/transactions/transactions-view";
-import { mockAccounts, mockCategories, mockTransactions } from "@/data/mock-finance";
+import { mockAccounts, mockCategories } from "@/data/mock-finance";
 import { getTodayInManila } from "@/lib/finance/months";
 
 export const metadata: Metadata = {
@@ -28,7 +28,6 @@ async function Transactions() {
     <TransactionsView
       accounts={mockAccounts}
       categories={mockCategories}
-      transactions={mockTransactions}
       today={today}
     />
   );

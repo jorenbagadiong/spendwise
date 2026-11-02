@@ -1,8 +1,13 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import {
   ArrowRightIcon,
+  CircleCheckIcon,
+  PencilIcon,
+  PlusIcon,
+  Trash2Icon,
+  XIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   FilterXIcon,
@@ -12,6 +17,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { DeleteTransactionDialog } from "@/components/transactions/delete-transaction-dialog";
+import { TransactionFormDialog } from "@/components/transactions/transaction-form-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -46,6 +53,7 @@ import {
   type TransactionSort,
 } from "@/lib/finance/transactions";
 import { cn } from "@/lib/utils";
+import { useTransactionStore } from "@/stores/transaction-store-provider";
 import type { Account, Category, IsoDate, Transaction } from "@/types/finance";
 
 const PAGE_SIZE = 10;
@@ -74,7 +82,6 @@ type Option = { value: string; label: string };
 type TransactionsViewProps = {
   accounts: readonly Account[];
   categories: readonly Category[];
-  transactions: readonly Transaction[];
   /** Today in Asia/Manila, computed on the server so both renders agree. */
   today: IsoDate;
 };
@@ -82,14 +89,24 @@ type TransactionsViewProps = {
 export function TransactionsView({
   accounts,
   categories,
-  transactions,
   today,
 }: TransactionsViewProps) {
+  // The same store the dashboard reads, so changes appear on both pages.
+  const transactions = useTransactionStore((state) => state.transactions);
   const searchId = useId();
+  const addButtonRef = useRef<HTMLButtonElement>(null);
   const defaultFilters = getDefaultFilters(today);
   const [filters, setFilters] = useState<TransactionFilters>(defaultFilters);
   const [sort, setSort] = useState<TransactionSort>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
+
+  // Dialog targets are kept after closing so content doesn't vanish
+  // during the closing animation.
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Transaction | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState<Transaction | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Filtering, sorting, and paging are pure functions in lib/finance.
   const matching = filterTransactions(transactions, filters, categories);
@@ -135,8 +152,64 @@ export function TransactionsView({
     setPage(1);
   }
 
+  function openAdd() {
+    setEditing(null);
+    setFormOpen(true);
+  }
+
+  function openEdit(transaction: Transaction) {
+    setEditing(transaction);
+    setFormOpen(true);
+  }
+
+  function openDelete(transaction: Transaction) {
+    setDeleting(transaction);
+    setDeleteOpen(true);
+  }
+
+  function handleSaved(transaction: Transaction, action: "added" | "updated") {
+    // Filters are never reset automatically; say so if the record is hidden.
+    const visible = filterTransactions([transaction], filters, categories).length > 0;
+    setNotice(
+      `${action === "added" ? "Added" : "Saved"} “${transaction.description}”.` +
+        (visible ? "" : " It's hidden by the current filters."),
+    );
+  }
+
+  function handleDeleted(transaction: Transaction | null, description: string) {
+    setNotice(
+      transaction
+        ? `Deleted “${description}”.`
+        : `“${description}” was already deleted.`,
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* Announces saves and deletions; always rendered so updates are read out. */}
+        <div role="status" className="min-w-0 flex-1">
+          {notice && (
+            <p className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+              <CircleCheckIcon className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
+              <span className="min-w-0 flex-1">{notice}</span>
+              <button
+                type="button"
+                onClick={() => setNotice(null)}
+                className="-m-1 rounded p-1 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Dismiss message"
+              >
+                <XIcon className="size-3.5" aria-hidden="true" />
+              </button>
+            </p>
+          )}
+        </div>
+        <Button ref={addButtonRef} onClick={openAdd}>
+          <PlusIcon data-icon="inline-start" aria-hidden="true" />
+          Add transaction
+        </Button>
+      </div>
+
       <h2 className="sr-only">Filters</h2>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <div className="flex flex-col gap-1.5">
@@ -230,7 +303,10 @@ export function TransactionsView({
                   <TableHead>Category</TableHead>
                   <TableHead>Account</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead className="pr-4 text-right">Amount</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="w-px pr-4">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -240,7 +316,7 @@ export function TransactionsView({
                       <time dateTime={t.date}>{formatDateLabel(t.date)}</time>
                     </TableCell>
                     {/* Text columns wrap so the table fits narrow screens. */}
-                    <TableCell className="min-w-40 font-medium whitespace-normal">
+                    <TableCell className="min-w-32 font-medium whitespace-normal">
                       {t.description}
                     </TableCell>
                     <TableCell className="whitespace-normal">
@@ -254,11 +330,18 @@ export function TransactionsView({
                     </TableCell>
                     <TableCell
                       className={cn(
-                        "pr-4 text-right font-medium tabular-nums",
+                        "text-right font-medium tabular-nums",
                         typeStyles[t.type].amount,
                       )}
                     >
                       {formatTransactionAmount(t)}
+                    </TableCell>
+                    <TableCell className="pr-4">
+                      <RowActions
+                        transaction={t}
+                        onEdit={openEdit}
+                        onDelete={openDelete}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -290,6 +373,12 @@ export function TransactionsView({
                     <span aria-hidden="true">·</span>
                     <AccountNames transaction={t} names={accountNames} />
                   </div>
+                  <RowActions
+                    transaction={t}
+                    onEdit={openEdit}
+                    onDelete={openDelete}
+                    showLabels
+                  />
                 </li>
               ))}
             </ul>
@@ -332,6 +421,60 @@ export function TransactionsView({
           )}
         </nav>
       )}
+
+      <TransactionFormDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        transaction={editing}
+        accounts={accounts}
+        categories={categories}
+        today={today}
+        onSaved={handleSaved}
+      />
+      <DeleteTransactionDialog
+        open={deleteOpen}
+        transaction={deleting}
+        onOpenChange={setDeleteOpen}
+        onDeleted={handleDeleted}
+        finalFocus={addButtonRef}
+      />
+    </div>
+  );
+}
+
+function RowActions({
+  transaction,
+  onEdit,
+  onDelete,
+  showLabels = false,
+}: {
+  transaction: Transaction;
+  onEdit: (transaction: Transaction) => void;
+  onDelete: (transaction: Transaction) => void;
+  /** Text labels on mobile, icon-only buttons in the table. */
+  showLabels?: boolean;
+}) {
+  return (
+    <div className={cn("flex items-center gap-1", showLabels && "-ml-2")}>
+      <Button
+        variant="ghost"
+        size={showLabels ? "sm" : "icon-sm"}
+        onClick={() => onEdit(transaction)}
+        aria-label={`Edit ${transaction.description}`}
+      >
+        <PencilIcon data-icon="inline-start" aria-hidden="true" />
+        {showLabels && "Edit"}
+      </Button>
+      <Button
+        variant="ghost"
+        size={showLabels ? "sm" : "icon-sm"}
+        onClick={() => onDelete(transaction)}
+        aria-label={`Delete ${transaction.description}`}
+        className="text-muted-foreground hover:text-destructive"
+      >
+        <Trash2Icon data-icon="inline-start" aria-hidden="true" />
+        {showLabels && "Delete"}
+      </Button>
     </div>
   );
 }

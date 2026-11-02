@@ -22,9 +22,9 @@ describe("validateTransaction", () => {
   });
 
   it("rejects a transfer to the same account", () => {
-    expect(validate({ id: "1", type: "transfer", amount: 100, date: "2026-01-02", description: "", accountId: "bank", destinationAccountId: "bank" })).toContain(
-      "Transfer source and destination must be different accounts.",
-    );
+    expect(validate({ id: "1", type: "transfer", amount: 100, date: "2026-01-02", description: "", accountId: "bank", destinationAccountId: "bank" })).toEqual([
+      { field: "destinationAccountId", message: "Transfer source and destination must be different accounts." },
+    ]);
   });
 
   it("rejects zero, negative, and fractional amounts", () => {
@@ -34,12 +34,15 @@ describe("validateTransaction", () => {
   });
 
   it("rejects a category of the wrong type", () => {
-    expect(validate({ id: "1", type: "expense", amount: 100, date: "2026-01-02", description: "", accountId: "bank", categoryId: "salary" })).toHaveLength(1);
+    expect(validate({ id: "1", type: "expense", amount: 100, date: "2026-01-02", description: "", accountId: "bank", categoryId: "salary" }).map((i) => i.field)).toEqual(["categoryId"]);
   });
 
   it("rejects dates before the account opened and malformed dates", () => {
     expect(validate({ id: "1", type: "expense", amount: 100, date: "2025-12-31", description: "", accountId: "bank", categoryId: "food" })).toHaveLength(1);
     expect(validate({ id: "2", type: "expense", amount: 100, date: "2026-1-5", description: "", accountId: "bank", categoryId: "food" })).toHaveLength(1);
+    expect(validate({ id: "3", type: "expense", amount: 100, date: "2026-02-30", description: "", accountId: "bank", categoryId: "food" })).toEqual([
+      { field: "date", message: "Date must be a real calendar date (YYYY-MM-DD)." },
+    ]);
   });
 
   it("rejects unknown accounts", () => {
