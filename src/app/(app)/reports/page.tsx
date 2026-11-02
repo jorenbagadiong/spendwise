@@ -1,7 +1,9 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
-import { ChartColumnIcon } from "lucide-react";
+import { connection } from "next/server";
 
-import { PagePlaceholder } from "@/components/layout/page-placeholder";
+import { FinancialReports } from "@/components/reports/financial-reports";
+import { getTodayInManila } from "@/lib/finance/months";
 
 export const metadata: Metadata = {
   title: "Reports",
@@ -9,10 +11,17 @@ export const metadata: Metadata = {
 
 export default function ReportsPage() {
   return (
-    <PagePlaceholder
-      icon={ChartColumnIcon}
-      title="Reports are coming soon"
-      description="Charts and breakdowns of your spending over time will appear here."
-    />
+    <Suspense>
+      <Reports />
+    </Suspense>
   );
+}
+
+async function Reports() {
+  // Same as the dashboard: "today" (Asia/Manila) is read per request so the
+  // default reporting month is never frozen into the build.
+  await connection();
+  const today = getTodayInManila();
+
+  return <FinancialReports today={today} />;
 }

@@ -61,6 +61,14 @@ export function formatDateLabel(date: IsoDate): string {
   return `${MONTH_NAMES[month - 1].slice(0, 3)} ${day}, ${year}`;
 }
 
+/** Moves a month forward (positive) or back (negative): ("2026-01", -1) → "2025-12". */
+export function shiftMonth(month: MonthKey, delta: number): MonthKey {
+  const { year, month: monthNumber } = parseMonthKey(month);
+  // Count months from year 0 so year boundaries need no special cases.
+  const index = year * 12 + (monthNumber - 1) + delta;
+  return toMonthKey(Math.floor(index / 12), (((index % 12) + 12) % 12) + 1);
+}
+
 /** Every month from `start` to `end`, inclusive and in ascending order. */
 export function listMonths(start: MonthKey, end: MonthKey): MonthKey[] {
   const from = parseMonthKey(start);

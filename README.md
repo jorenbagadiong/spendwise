@@ -23,6 +23,8 @@ The project is built frontend-first: the UI and data handling run entirely in th
 
 Financial data is saved in the browser's `localStorage` (SW-008A). No extra packages are used for persistence: it's built on the existing Zustand stores and Zod.
 
+Reports (SW-008B) add no dependencies either. The trend chart is built from plain elements and Tailwind classes; see [why no chart library](#why-no-chart-library).
+
 Vitest 4 is used instead of Vitest 5 because Vitest 5 requires Node.js 22.12+, and this project supports Node.js 20.9+.
 
 ## Prerequisites
@@ -80,7 +82,7 @@ spendwise/
 │   │   │   ├── app-header.tsx      # Page title/description, date, theme menu, drawer trigger
 │   │   │   ├── app-sidebar.tsx     # Desktop sidebar and the shared AppBrand
 │   │   │   ├── mobile-navigation.tsx # Drawer navigation below the `lg` breakpoint
-│   │   │   ├── page-placeholder.tsx  # Temporary "coming soon" state for unbuilt pages
+│   │   │   ├── page-placeholder.tsx  # "Coming soon" state (unused since SW-008B; kept for future sections)
 │   │   │   ├── sidebar-nav.tsx     # Navigation links with active-route highlighting
 │   │   │   ├── theme-provider.tsx  # next-themes provider
 │   │   │   └── theme-toggle.tsx    # Light / Dark / System menu
@@ -100,7 +102,13 @@ spendwise/
 │   │   │   └── settings-view.tsx   # Settings: Appearance, Data management, Preferences
 │   │   ├── dashboard/
 │   │   │   ├── financial-dashboard.tsx # Month selector, summary cards, empty state (client)
-│   │   │   └── summary-card.tsx    # Reusable summary card (title, value, icon, tone)
+│   │   │   └── summary-card.tsx    # Reusable summary card (title, value, icon, tone); also used by Reports
+│   │   ├── reports/
+│   │   │   ├── financial-reports.tsx # Reports page: period, summary cards, sections, empty states (client)
+│   │   │   ├── report-period-picker.tsx # Month dropdown with previous/next buttons
+│   │   │   ├── monthly-trend-chart.tsx # Six-month income vs expenses bar chart, tooltips, data table
+│   │   │   ├── expense-breakdown-list.tsx # Ranked list with share bars (categories and accounts)
+│   │   │   └── month-comparison.tsx # Selected month vs the previous month
 │   │   ├── transactions/
 │   │   │   ├── transactions-view.tsx # Filters, table/list, row actions, notices, pagination (client)
 │   │   │   ├── transaction-form-dialog.tsx # Add/edit form (React Hook Form + Zod) in a dialog
@@ -118,8 +126,9 @@ spendwise/
 │   │   │   ├── accounts.ts         # Account name rules, account form schemas, selectable accounts
 │   │   │   ├── categories.ts       # Category rules, icon/color lists, form schema, selectable categories, usage
 │   │   │   ├── calculations.ts     # Pure income/expense/balance/summary functions
-│   │   │   ├── money.ts            # formatCurrency (centavos → "₱1,234.56")
-│   │   │   ├── months.ts           # Month keys, labels, Asia/Manila "today", reporting cutoff
+│   │   │   ├── reports.ts          # Pure report selectors: monthly report, trend, breakdowns, comparison
+│   │   │   ├── money.ts            # formatCurrency (centavos → "₱1,234.56"), compact axis labels ("₱40K")
+│   │   │   ├── months.ts           # Month keys, labels, shiftMonth, Asia/Manila "today", reporting cutoff
 │   │   │   ├── transactions.ts     # Pure filter, sort, paginate, and amount display helpers
 │   │   │   ├── transaction-form.ts # Form values, Zod schema, pesos → centavos for the form
 │   │   │   ├── validation.ts       # Business rules TypeScript can't express
@@ -165,7 +174,7 @@ A `src/hooks` folder will be added only when a milestone needs it.
 | `/transactions` | Transaction table with add/edit/delete | SW-004 (done), SW-005 (done)                                |
 | `/accounts`     | Account management                     | SW-006 (done)                                               |
 | `/categories`   | Category management                    | SW-007 (done)                                               |
-| `/reports`      | Reports (placeholder)                  | SW-008B (reports), SW-008C (CSV export)                     |
+| `/reports`      | Financial reports                      | SW-008B (done), SW-008C (CSV export)                        |
 | `/settings`     | Settings: appearance and data management | SW-002 (theme, in the header menu), SW-008A (done: data management) |
 
 All pages live in the `(app)` route group, so they share one layout and the sidebar and header are never duplicated. To add a section, add an entry to `src/config/navigation.ts` and a `page.tsx` under `src/app/(app)/`.
@@ -716,6 +725,98 @@ Success notices say "Added" or "Updated", not "Saved", so they never claim durab
 - Some private modes or privacy settings block storage. The app then runs in memory with a warning.
 - Data isn't encrypted. Anyone with access to this browser profile can read it.
 
+## Financial reports (SW-008B)
+
+`/reports` shows one month's finances in detail: summary cards, a six-month trend, a comparison with the previous month, and spending broken down by category and by account. Every number is derived from the shared transaction, account, and category stores on each render, so reports update immediately after any transaction change, archive, or backup restore. Nothing calculated is stored or persisted.
+
+### Reporting period
+
+- **Default:** the current month in Asia/Manila (`today` is computed on the server per request, like the dashboard).
+- **Choices:** every month from the earliest account opening or transaction through the current month, newest first, chosen from a dropdown or with the previous/next buttons. Months without transactions stay selectable. If any transactions are dated in the future, the list extends to the latest one, so those records are never silently unreachable (`getReportMonths`).
+- **One period everywhere:** the cards, trend, comparison, and both breakdowns all use the selected month. The heading names it ("Financial report · October 2026"). Clicking a month in the trend chart also selects it.
+- **Calendar months:** a transaction belongs to the month in its `YYYY-MM-DD` date. Dates are calendar dates, not timestamps, so there's no time-zone conversion and no day shift.
+- **Future-dated transactions** in the selected month are included in its totals (the dashboard does the same) and a note says how many there are.
+
+### Summary cards
+
+| Card             | Rule                                                                 |
+| ---------------- | -------------------------------------------------------------------- |
+| Total Income     | Sum of income transactions in the month                              |
+| Total Expenses   | Sum of expense transactions in the month                             |
+| Net Cash Flow    | Income − expenses, signed (`+₱…` / `-₱…`)                            |
+| Cash Flow Margin | Net cash flow ÷ income × 100, one decimal. **N/A** when income is ₱0 |
+
+The first three match the dashboard for the same month exactly (a unit test checks this). Cash flow margin is not called a savings rate: it measures how much of the month's income wasn't spent that month, not money actually moved into savings. It can be negative.
+
+### Reporting calculation rules
+
+All report math is in `src/lib/finance/reports.ts`, built on the SW-003 utilities in `calculations.ts`:
+
+| Function                       | What it returns                                                                         |
+| ------------------------------ | --------------------------------------------------------------------------------------- |
+| `getMonthlyReport`             | Transaction count, income, expenses, net cash flow, and cash flow margin for a month    |
+| `getCashFlowMargin`            | Net ÷ income × 100, or `null` when income is zero                                       |
+| `getMonthlyTrend`              | Income, expenses, and net for the selected month and the five before it                 |
+| `getExpensesByCategory`        | The month's expenses per category, highest first, with shares of total expenses         |
+| `getExpensesByAccount`         | The month's expenses per source account, highest first, with shares                     |
+| `getMonthOverMonthComparison`  | Income, expense, and net changes against the immediately preceding month                |
+| `getReportMonths`              | Selectable reporting months                                                             |
+| `countFutureDatedTransactions` | Transactions in a month dated after today                                               |
+| `formatPercent`                | `35.0025` → `"35.0%"`; `null` → `"N/A"`                                                 |
+
+1. **Integer centavos.** All totals are integer sums. A percentage is computed once from exact integer totals and rounded only when displayed.
+2. **Transfers are never income or expenses**, so they don't appear in any report total or breakdown.
+3. **Opening balances aren't income.** They aren't transactions, so reports never see them.
+4. **Archived accounts and categories stay in reports.** Historical expenses keep their rows, labeled "Archived". Names, icons, and colors come from the shared stores by id. If a record were missing (storage integrity checks prevent this), the row would still appear as "Unknown category/account" rather than being dropped.
+5. **No data is changed.** Selectors only read their inputs (tests run them on frozen data).
+6. **Recalculation is cheap and targeted.** Each report is wrapped in `useMemo`, keyed on the stores' arrays and the selected month. Store actions replace arrays on every change, so reports recalculate exactly when the data or period changes. The trend is a single pass over the transactions. There are no loading indicators for these calculations: they're synchronous.
+
+### Monthly trend
+
+- Grouped bars for the selected month and the five months before it (crossing years as needed), oldest on the left. Months with no activity show as empty columns with ₱0 values.
+- **Income is always the left bar (solid emerald) and expenses the right bar (striped rose).** The theme's income and expense colors are hard to tell apart with red-green color blindness, especially in dark mode (checked with a CVD palette validator), so position, the stripe texture, and the legend carry the meaning as well as color.
+- Hovering or keyboard-focusing a month shows a tooltip with exact income, expenses, and signed net cash flow. Each month column is a button whose accessible name reads the same values; activating it selects that month.
+- The value axis rounds up to clean gridlines (`getNiceAxisMax`) and uses compact labels (`₱40K`). Exact values are in the tooltip and in **Show as table**, a full data table with net cash flow, which may be negative.
+- Bars and labels use theme tokens (`--income`, `--expense`, `--muted`, …), so light and dark mode both work. Bars are at most 24px wide and the chart resizes with its container.
+
+### Why no chart library
+
+Recharts was considered. Six months × two bars is easy to build with Tailwind, and plain elements need no width measurement, which matters because `DataGate` keeps pages hidden (`display: none`) until storage is read. Measured charts can render at zero width in that case. Skipping the library also avoids a dependency and keeps the colors on the existing CSS variables.
+
+### Category and account breakdowns
+
+- **Expenses by category:** expense transactions only, grouped by category, sorted by amount (ties by name). Each row shows the category icon, name, number of expenses, exact amount, percentage of the month's total expenses, and a share bar. The total is shown in the section header.
+- **Spending by account:** expense transactions grouped by the account they were paid from. This is spending per payment source, not an account balance. Transfers and income are excluded.
+- **Every category or account with expenses is listed.** Small amounts aren't folded into "Others".
+- The share bars are decorative. Names, amounts, and percentages are always written out, so nothing depends on color or bar length. Rounded percentages may not add up to exactly 100.0%.
+- **Empty states:** a month with no expenses says so (and mentions the month's income if there was any).
+
+### Month-over-month comparison
+
+- Compares income, expenses, and net cash flow for the selected month against the immediately preceding month (January is compared with December of the previous year), using the same rules as the cards.
+- Each row shows both values, the absolute difference, and the percentage change (difference ÷ |previous| × 100).
+- **When the previous value is ₱0, the percentage is undefined:** the row shows the absolute difference with "% N/A" instead of dividing by zero.
+- **Neutral wording:** "Up", "Down", or "No change" with an arrow, never green/red or "good/bad". Higher expenses or lower income aren't automatically good or bad. The card says so.
+
+### Empty, loading, and error states
+
+| Situation                          | What's shown                                                                 |
+| ---------------------------------- | ---------------------------------------------------------------------------- |
+| Saved data still loading           | `DataGate` loading state (no report, no demo or placeholder totals)          |
+| Saved data unreadable              | `DataGate` recovery screen (SW-008A); reports aren't shown                   |
+| No transactions at all             | "No transactions to report yet" with a link to add one                       |
+| No transactions in the month       | ₱0.00 cards, margin N/A, a "No transactions in …" note; trend still shown    |
+| Income but no expenses             | Margin 100.0%; breakdowns say "No expenses in …" and mention the income      |
+| Expenses but no income             | Margin N/A, with an explanation; negative net cash flow shown as `-₱…`       |
+| Archived categories/accounts       | Listed with an "Archived" label                                              |
+
+### Responsive and accessible
+
+- Summary cards: 1 column on mobile, 2 from 640px, 4 from 1280px. The trend and comparison sit side by side from 1024px, and so do the two breakdowns. No horizontal scrolling at 375px, even with the data table open (it scrolls inside its own container).
+- The period picker is a labeled dropdown plus previous/next buttons with descriptive labels. Everything is reachable with the keyboard.
+- The transaction count is announced through a polite live region when the period changes.
+- No animations were added.
+
 ## Testing
 
 ```bash
@@ -760,6 +861,16 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Backups: export, valid restore, atomic replacement on write failure, clear-all.
   - Multiple tabs: conflict detection before writing and from the storage event, cleared-elsewhere data, resolving by reloading.
   - Recovery guidance for each storage state (`guidance.test.ts`).
+- Reports (`src/lib/finance/reports.test.ts`, hand-calculated fixture spanning December 2025 to April 2026):
+  - Monthly income, expenses, net cash flow, and cash flow margin; agreement with the dashboard summary.
+  - Zero income (margin N/A), negative net cash flow, income without expenses, empty months, empty datasets.
+  - Transfer and opening-balance exclusion.
+  - Category and account totals, exact shares, sorting and tie-breaking, archived categories and accounts, missing records.
+  - Month boundaries (first/last day), year transitions (December → January), six-month trend with missing months.
+  - Month-over-month changes, including previous-month zero and negative previous net cash flow.
+  - Selectable months (including future-dated transactions), percentage and axis formatting, `shiftMonth`.
+  - No mutation of source data (frozen inputs).
+  - Recalculation after adding, editing, and deleting through the transaction store, after adding a transfer, after archiving, and after restoring a backup through the persistence controller.
 
 ## Current features
 
@@ -795,6 +906,12 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Demo data seeded only on the first visit; validated, versioned snapshot; recovery screen for unreadable data
   - Settings page: Appearance (shared theme selector), Data management (status with recovery guidance, JSON backup export and import, clear all data), and read-only Preferences (PHP currency, Asia/Manila time zone)
   - Save-failure warnings and multiple-tab conflict protection
+- **SW-008B:** financial reports
+  - Reports page with a month/year reporting period (Asia/Manila default, previous/next buttons)
+  - Summary cards: income, expenses, net cash flow, cash flow margin (N/A without income)
+  - Six-month income vs expenses chart with tooltips, texture as well as color, and a data table
+  - Expenses by category and spending by account, archived records included
+  - Month-over-month comparison with neutral wording
 
 ## Development progress
 
@@ -808,7 +925,7 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - [x] **SW-006** — Account management (add, edit, archive, and restore accounts; calculated balances; shared account store)
 - [x] **SW-007** — Category management (add, edit, archive, and restore categories; icons and colors; usage counts; shared category store)
 - [x] **SW-008A** — Local data persistence (`localStorage`, validated versioned snapshot, backup and restore, Settings data management, multiple-tab protection)
-- [ ] **SW-008B** — Financial reports (Reports page: monthly summaries, category breakdowns)
+- [x] **SW-008B** — Financial reports (reporting period, summary cards with cash flow margin, six-month trend, category and account breakdowns, month-over-month comparison)
 - [ ] **SW-008C** — CSV export
 
 ### Milestone dependencies
@@ -820,7 +937,7 @@ A story is checked only when its acceptance criteria and verification checks (ty
 
 ### Reports scope (SW-008B and SW-008C)
 
-- **SW-008B:** monthly summaries (income, expenses, and net cash flow per month, reusing the SW-003 calculation utilities) and category breakdowns (totals per income and expense category for a selected period).
+- **SW-008B (done):** monthly summary and cash flow margin, six-month trend, expense breakdowns by category and by account, and month-over-month comparison, all reusing the SW-003 calculation utilities. Income-by-category breakdowns weren't part of the final scope.
 - **SW-008C:** CSV export of transactions.
 
 ### Settings scope
@@ -828,7 +945,7 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - **SW-002 (done):** theme preference (Light, Dark, System). It's currently set from the header theme menu and saved in `localStorage`.
 - **SW-008A (done):** local data management: storage status, JSON backup export and import, and clear all data.
 
-**Next milestone:** SW-008B — Financial reports.
+**Next milestone:** SW-008C — CSV export.
 
 ## Current limitations
 
@@ -837,7 +954,11 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - A conflicted tab can download its unsaved changes but can't merge them into the newer data. Merging is manual (re-enter or restore).
 - Backups are full replacements. There's no partial import or merge, and no CSV export yet (SW-008C).
 - Page content waits for storage to be read, so each full page load briefly shows "Loading your saved data…".
-- The Reports page is still a placeholder (SW-008B).
+- Reports cover one calendar month at a time. There are no custom date ranges, quarters, or year-to-date totals, and the trend always shows six months.
+- Breakdowns are expense-only. Income by category isn't reported yet.
+- Percentages are rounded to one decimal independently, so a breakdown may total 99.9% or 100.1%.
+- The trend chart's tooltip appears on hover or keyboard focus. On touch screens, tapping a month selects it; exact values are in the summary cards and the data table.
+- The reporting period is local page state. It isn't in the URL, and it isn't shared with the dashboard's month selector.
 - Category icons and colors appear on the Categories page only. The transaction table shows category names without icons.
 - A category can't be merged into another, and its type can't change. To move transactions to another category, edit them one at a time.
 - An account's opening balance and date can't be corrected after creation. A future adjustment or reconciliation workflow is needed for that.
@@ -850,8 +971,8 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - Mock data is fixed to July–November 2026. In later months, the dashboard will default to a month with no data. Every month from July 2026 onward stays selectable.
 - Months are listed in a single dropdown. Once data spans many years, a year selector may be needed.
 - The header date is formatted in the browser after load, so it appears a moment after the rest of the header. It shows the Asia/Manila date (matching the dashboard) in the browser's locale format, and doesn't update if the page stays open past midnight.
-- Chart color tokens (`--chart-1` to `--chart-5`) are still the shadcn/ui grayscale defaults and will be themed when charts are added.
-- Unit tests cover the finance logic, form schemas, stores, and persistence. There are no component or end-to-end tests in the repo; the SW-002 to SW-008A browser checks were run manually with Playwright.
+- Chart color tokens (`--chart-1` to `--chart-5`) are still the shadcn/ui grayscale defaults. The Reports chart uses the existing `--income` and `--expense` tokens and category colors instead.
+- Unit tests cover the finance logic, form schemas, stores, and persistence. There are no component or end-to-end tests in the repo; the SW-002 to SW-008B browser checks were run manually with Playwright.
 
 ## Planned backend integration
 

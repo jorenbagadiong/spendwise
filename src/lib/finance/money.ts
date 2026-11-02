@@ -31,6 +31,20 @@ export function formatCurrency(
   return formatted;
 }
 
+/**
+ * Short peso labels for chart axes: 0 → "₱0", 250_000 → "₱2.5K",
+ * 4_000_000 → "₱40K", 150_000_000 → "₱1.5M". For axis ticks only; exact
+ * amounts always use formatCurrency.
+ */
+export function formatCompactCurrency(amount: Centavos): string {
+  const sign = amount < 0 ? "-" : "";
+  const pesos = Math.abs(amount) / 100;
+  const [value, suffix] =
+    pesos >= 1_000_000 ? [pesos / 1_000_000, "M"] : pesos >= 1_000 ? [pesos / 1_000, "K"] : [pesos, ""];
+  // One decimal at most, without a trailing ".0".
+  return `${sign}₱${String(Number(value.toFixed(1)))}${suffix}`;
+}
+
 /** Largest amount accepted from forms: ₱999,999,999.99. */
 export const MAX_AMOUNT: Centavos = 99_999_999_999;
 
