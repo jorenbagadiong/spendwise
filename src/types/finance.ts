@@ -23,6 +23,15 @@ export type Account = {
   isActive: boolean;
 };
 
+/** Fields needed to create an account; it starts active with a new id. */
+export type AccountInput = Pick<Account, "name" | "type" | "openingBalance" | "openingDate">;
+
+/**
+ * The only fields that can change after creation. Opening balance and date
+ * are excluded on purpose: changing them would rewrite historical balances.
+ */
+export type AccountUpdate = Pick<Account, "name" | "type">;
+
 export type CategoryType = "income" | "expense";
 
 export type CategoryIcon =

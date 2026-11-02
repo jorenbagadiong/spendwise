@@ -54,7 +54,9 @@ import {
 } from "@/lib/finance/transactions";
 import { cn } from "@/lib/utils";
 import { useTransactionStore } from "@/stores/transaction-store-provider";
-import type { Account, Category, IsoDate, Transaction } from "@/types/finance";
+import { getAccountLabel } from "@/lib/finance/accounts";
+import { useAccountStore } from "@/stores/account-store-provider";
+import type { Category, IsoDate, Transaction } from "@/types/finance";
 
 const PAGE_SIZE = 10;
 
@@ -80,23 +82,29 @@ const sortOptions: { value: TransactionSort; label: string }[] = [
 type Option = { value: string; label: string };
 
 type TransactionsViewProps = {
-  accounts: readonly Account[];
   categories: readonly Category[];
   /** Today in Asia/Manila, computed on the server so both renders agree. */
   today: IsoDate;
+  /** Start filtered to this account across all months (from ?account=). */
+  initialAccountId?: string;
 };
 
 export function TransactionsView({
-  accounts,
   categories,
   today,
+  initialAccountId,
 }: TransactionsViewProps) {
-  // The same store the dashboard reads, so changes appear on both pages.
+  // The same stores the dashboard reads, so changes appear on every page.
+  const accounts = useAccountStore((state) => state.accounts);
   const transactions = useTransactionStore((state) => state.transactions);
   const searchId = useId();
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const defaultFilters = getDefaultFilters(today);
-  const [filters, setFilters] = useState<TransactionFilters>(defaultFilters);
+  const [filters, setFilters] = useState<TransactionFilters>(() =>
+    initialAccountId && accounts.some((a) => a.id === initialAccountId)
+      ? { ...defaultFilters, accountId: initialAccountId, month: ALL }
+      : defaultFilters,
+  );
   const [sort, setSort] = useState<TransactionSort>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
 
@@ -133,7 +141,8 @@ export function TransactionsView({
   ];
   const accountOptions: Option[] = [
     { value: ALL, label: "All accounts" },
-    ...accounts.map((a) => ({ value: a.id, label: a.name })),
+    // Archived accounts stay listed so their history can be filtered.
+    ...accounts.map((a) => ({ value: a.id, label: getAccountLabel(a) })),
   ];
   const categoryGroups = (["income", "expense"] as const).map((type) => ({
     label: type === "income" ? "Income" : "Expense",

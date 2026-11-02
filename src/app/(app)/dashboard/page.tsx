@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 
 import { FinancialDashboard } from "@/components/dashboard/financial-dashboard";
-import { mockAccounts } from "@/data/mock-finance";
 import { getTodayInManila } from "@/lib/finance/months";
 
 export const metadata: Metadata = {
@@ -26,6 +25,6 @@ async function Dashboard() {
   const today = getTodayInManila();
 
   return (
-    <FinancialDashboard accounts={mockAccounts} today={today} />
+    <FinancialDashboard today={today} />
   );
 }

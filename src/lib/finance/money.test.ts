@@ -99,3 +99,13 @@ describe("formatCentavosForInput", () => {
     }
   });
 });
+
+describe("parsePesosToCentavos with allowZero", () => {
+  it("accepts zero but still rejects negatives and extra decimals", () => {
+    expect(parsePesosToCentavos("0", { allowZero: true })).toEqual({ ok: true, value: 0 });
+    expect(parsePesosToCentavos("0.00", { allowZero: true })).toEqual({ ok: true, value: 0 });
+    expect(parsePesosToCentavos("-1", { allowZero: true })).toEqual({ ok: false, error: "Amount can't be negative." });
+    expect(parsePesosToCentavos("1.005", { allowZero: true })).toEqual({ ok: false, error: "Use at most two decimal places." });
+    expect(parsePesosToCentavos("", { allowZero: true })).toEqual({ ok: false, error: "Enter an amount." });
+  });
+});

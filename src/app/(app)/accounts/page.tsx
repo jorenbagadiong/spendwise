@@ -1,7 +1,9 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
-import { WalletCardsIcon } from "lucide-react";
+import { connection } from "next/server";
 
-import { PagePlaceholder } from "@/components/layout/page-placeholder";
+import { AccountsView } from "@/components/accounts/accounts-view";
+import { getTodayInManila } from "@/lib/finance/months";
 
 export const metadata: Metadata = {
   title: "Accounts",
@@ -9,10 +11,14 @@ export const metadata: Metadata = {
 
 export default function AccountsPage() {
   return (
-    <PagePlaceholder
-      icon={WalletCardsIcon}
-      title="Accounts are coming soon"
-      description="Your cash, bank, and e-wallet accounts and their balances will appear here."
-    />
+    <Suspense>
+      <Accounts />
+    </Suspense>
   );
+}
+
+async function Accounts() {
+  // Balances are shown "as of today" in Asia/Manila, read per request.
+  await connection();
+  return <AccountsView today={getTodayInManila()} />;
 }

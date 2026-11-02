@@ -35,6 +35,7 @@ import {
   getFormValuesFromTransaction,
   type TransactionFormValues,
 } from "@/lib/finance/transaction-form";
+import { getAccountLabel, getSelectableAccounts } from "@/lib/finance/accounts";
 import { cn } from "@/lib/utils";
 import { useTransactionStore } from "@/stores/transaction-store-provider";
 import type {
@@ -114,8 +115,8 @@ function TransactionForm({
   };
 
   const schema = useMemo(
-    () => createTransactionFormSchema(accounts, categories),
-    [accounts, categories],
+    () => createTransactionFormSchema(accounts, categories, { original: transaction }),
+    [accounts, categories, transaction],
   );
   const form = useForm<TransactionFormValues, unknown, TransactionInput>({
     resolver: zodResolver(schema),
@@ -126,9 +127,11 @@ function TransactionForm({
   const { control, formState, register, handleSubmit, setValue, getValues, clearErrors, setError } = form;
   const type = useWatch({ control, name: "type" });
 
-  const activeAccounts = accounts
-    .filter((a) => a.isActive)
-    .map((a) => ({ value: a.id, label: a.name }));
+  // Active accounts, plus any archived account this transaction already uses.
+  const activeAccounts = getSelectableAccounts(accounts, transaction).map((a) => ({
+    value: a.id,
+    label: getAccountLabel(a),
+  }));
   const categoryOptions = categories
     .filter((c) => c.type === type)
     .map((c) => ({ value: c.id, label: c.name }));

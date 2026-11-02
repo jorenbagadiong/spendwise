@@ -77,11 +77,19 @@ function toTransactionInput(
  * Zod schema for the transaction form. It needs the current accounts and
  * categories to check references, so it's created per form. The output is
  * a TransactionInput ready for the store.
+ *
+ * Pass `original` when editing: an archived account the transaction already
+ * uses stays allowed, but nothing can be moved onto a different archived account.
  */
 export function createTransactionFormSchema(
   accounts: readonly Account[],
   categories: readonly Category[],
+  { original = null }: { original?: Transaction | null } = {},
 ) {
+  const originalAccountIds = new Set(
+    [original?.accountId, original?.destinationAccountId].filter(Boolean),
+  );
+
   return z
     .object({
       type: z.enum(["income", "expense", "transfer"]),
@@ -131,11 +139,13 @@ export function createTransactionFormSchema(
       for (const { field, message } of validateTransaction(input, accounts, categories)) {
         issue(field, message);
       }
-      // Only active accounts can receive new or edited entries.
+      // Archived accounts can't receive new entries, except the ones this
+      // transaction already used before the edit.
       for (const field of ["accountId", "destinationAccountId"] as const) {
+        if (field === "destinationAccountId" && values.type !== "transfer") continue;
         const account = accounts.find((a) => a.id === values[field]);
-        if (account && !account.isActive && (field === "accountId" || values.type === "transfer")) {
-          issue(field, `${account.name} is archived.`);
+        if (account && !account.isActive && !originalAccountIds.has(account.id)) {
+          issue(field, `${account.name} is archived. Choose an active account.`);
         }
       }
 

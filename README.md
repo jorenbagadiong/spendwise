@@ -84,6 +84,10 @@ spendwise/
 │   │   │   ├── sidebar-nav.tsx     # Navigation links with active-route highlighting
 │   │   │   ├── theme-provider.tsx  # next-themes provider
 │   │   │   └── theme-toggle.tsx    # Light / Dark / System menu
+│   │   ├── accounts/
+│   │   │   ├── accounts-view.tsx   # Summary, account cards, notices (client)
+│   │   │   ├── account-form-dialog.tsx # Add/edit account form (React Hook Form + Zod)
+│   │   │   └── archive-account-dialog.tsx # Archive confirmation (alert dialog)
 │   │   ├── dashboard/
 │   │   │   ├── financial-dashboard.tsx # Month selector, summary cards, empty state (client)
 │   │   │   └── summary-card.tsx    # Reusable summary card (title, value, icon, tone)
@@ -100,6 +104,7 @@ spendwise/
 │   │   └── mock-finance.test.ts    # Checks mock data is valid and matches hand-calculated totals
 │   ├── lib/
 │   │   ├── finance/
+│   │   │   ├── accounts.ts         # Account name rules, account form schemas, selectable accounts
 │   │   │   ├── calculations.ts     # Pure income/expense/balance/summary functions
 │   │   │   ├── money.ts            # formatCurrency (centavos → "₱1,234.56")
 │   │   │   ├── months.ts           # Month keys, labels, Asia/Manila "today", reporting cutoff
@@ -107,8 +112,12 @@ spendwise/
 │   │   │   ├── transaction-form.ts # Form values, Zod schema, pesos → centavos for the form
 │   │   │   ├── validation.ts       # Business rules TypeScript can't express
 │   │   │   └── *.test.ts           # Unit tests next to the code they test
+│   │   ├── ids.ts                  # Sequential id helper ("acct-001", "txn-031")
 │   │   └── utils.ts                # Shared helpers (`cn` class-name merging)
 │   ├── stores/
+│   │   ├── account-store.ts        # Zustand store factory: accounts + add/update/archive/restore
+│   │   ├── account-store-provider.tsx # React context provider and useAccountStore hook
+│   │   ├── account-store.test.ts
 │   │   ├── transaction-store.ts    # Zustand store factory: transactions + add/update/delete
 │   │   ├── transaction-store-provider.tsx # React context provider and useTransactionStore hook
 │   │   └── transaction-store.test.ts
@@ -132,7 +141,7 @@ A `src/hooks` folder will be added only when a milestone needs it.
 | `/`             | Redirects to `/dashboard` (temporary 307, set in `next.config.ts`) | SW-002                          |
 | `/dashboard`    | Financial summary dashboard            | SW-003 (done)                                               |
 | `/transactions` | Transaction table with add/edit/delete | SW-004 (done), SW-005 (done)                                |
-| `/accounts`     | Accounts (placeholder)                 | SW-006                                                      |
+| `/accounts`     | Account management                     | SW-006 (done)                                               |
 | `/categories`   | Categories (placeholder)               | SW-007                                                      |
 | `/reports`      | Reports (placeholder)                  | SW-008                                                      |
 | `/settings`     | Settings (placeholder)                 | SW-002 (theme, in the header menu), SW-008 (local data)     |
@@ -170,6 +179,7 @@ Defined in `src/types/finance.ts`.
   - `transfer`: requires `destinationAccountId` and can't have `categoryId`.
   - `amount` is always a positive integer. The type decides the direction.
 - **`TransactionInput`** is a transaction without an `id` (what forms produce). It keeps the same discriminated union.
+- **`AccountInput`** (name, type, opening balance, opening date) creates an account. **`AccountUpdate`** (name and type only) is the only shape `updateAccount` accepts, so TypeScript itself prevents editing the opening balance or date.
 - **Rules TypeScript can't check** live in `validateTransaction` (`src/lib/finance/validation.ts`). Each problem is returned as `{ field, message }` so forms can show it next to the right input:
   - Transfer source and destination accounts are different.
   - Amounts are positive integers.
@@ -178,7 +188,7 @@ Defined in `src/types/finance.ts`.
 
 ## Mock data
 
-`src/data/mock-finance.ts` holds fixed sample data in Philippine pesos. It is plain data, separate from the UI, and never randomly generated. Since SW-005, the mock transactions seed the in-memory store; the accounts and categories are still read directly.
+`src/data/mock-finance.ts` holds fixed sample data in Philippine pesos. It is plain data, separate from the UI, and never randomly generated. The mock transactions (SW-005) and accounts (SW-006) seed the in-memory stores; the categories are still read directly.
 
 - **Accounts (opened Jul 1, 2026):**
   - BPI Savings (bank, ₱45,000.00)
@@ -337,7 +347,7 @@ Transactions can be added, edited, and deleted on `/transactions`.
 | Transfer | From account                     | To account (no category)         |
 
 - Changing the type clears a category or destination that no longer applies.
-- Account lists show active accounts only.
+- Account lists show active accounts only. When editing, an archived account the transaction already uses stays available, labelled "(archived)" (see SW-006).
 - **Edit** opens the same form filled with the transaction's values. Any field can change, including the type. Saving replaces the record and keeps its id.
 - Validation errors appear inline under each field. Invalid fields are marked `aria-invalid` and the messages are announced. The dialog stays open until the form is valid.
 - After saving, the dialog closes and a message confirms it ("Added “Lunch”."). **Filters are never reset.** If the saved record doesn't match the current filters, the message says "It's hidden by the current filters."
@@ -358,7 +368,7 @@ The form uses React Hook Form with a Zod schema (`createTransactionFormSchema` i
 | Amount       | Required, greater than zero, at most two decimals, at most ₱999,999,999.99. Digits with optional correctly grouped commas (`1,250.50`). Rejects `1e3`, `Infinity`, `NaN`, `-5`, `.5`, `12.`, `₱100`, and `1.234`. **Never rounded.** |
 | Date         | A real calendar date, not before the account's opening date                                              |
 | Description  | Required, not whitespace-only, at most 120 characters, trimmed when saved                                |
-| Account(s)   | Must exist and be active. A transfer's source and destination must differ.                               |
+| Account(s)   | Must exist and be active (or, when editing, be the archived account the transaction already used). A transfer's source and destination must differ. |
 | Category     | Required for income and expenses, must exist and match the type. Transfers have no category.            |
 
 **Pesos to centavos:** `parsePesosToCentavos` (`src/lib/finance/money.ts`) converts the typed text using string operations only. `"0.29"` becomes exactly `29`, whereas `0.29 * 100` in floating point is `28.999999999999996`.
@@ -367,11 +377,15 @@ The form uses React Hook Form with a Zod schema (`createTransactionFormSchema` i
 
 ```
 (app)/layout.tsx
-└── TransactionStoreProvider        ← creates one Zustand store, seeded with mock data
-    ├── /dashboard  → FinancialDashboard   reads  state.transactions
-    └── /transactions → TransactionsView   reads  state.transactions
-                         ├── TransactionFormDialog   calls addTransaction / updateTransaction
-                         └── DeleteTransactionDialog calls deleteTransaction
+└── AccountStoreProvider            ← accounts store (SW-006), seeded with mock accounts
+    └── TransactionStoreProvider    ← transactions store, seeded with mock transactions
+        ├── /dashboard    → FinancialDashboard   reads accounts + transactions
+        ├── /transactions → TransactionsView     reads accounts + transactions
+        │                    ├── TransactionFormDialog   calls addTransaction / updateTransaction
+        │                    └── DeleteTransactionDialog calls deleteTransaction
+        └── /accounts     → AccountsView         reads accounts + transactions
+                             ├── AccountFormDialog       calls addAccount / updateAccount
+                             └── ArchiveAccountDialog    calls archiveAccount (restore is a button)
 ```
 
 - **One source of truth:** the store holds the transactions array and three actions. Pages never copy transactions into their own state.
@@ -387,6 +401,79 @@ The form uses React Hook Form with a Zod schema (`createTransactionFormSchema` i
 - **Immutable updates:** every action creates a new array, so React and Zustand detect changes by reference.
 - **No stored totals:** income, expenses, net cash flow, and balances are always derived from the transactions with the SW-003 functions. Editing or deleting a transaction automatically updates every total, including the transfer effect on both accounts and historical month-end balances.
 - **No persistence:** no Zustand `persist` middleware, `localStorage`, or `sessionStorage` (planned for SW-008).
+
+## Account management (SW-006)
+
+`/accounts` manages the bank accounts, e-wallets, and cash wallets that transactions belong to.
+
+> Accounts are stored in memory like transactions and reset after a full browser refresh. Persistent localStorage support is planned for SW-008.
+
+### Accounts page
+
+- **Summary:** consolidated balance (every account, **including archived ones**, as of today in Asia/Manila), plus active and archived counts.
+- **Account cards**, one per account:
+  - Name, type (Bank, E-wallet, Cash), and Active/Archived status.
+  - Current balance as of today. Negative balances show with a minus sign in the expense color.
+  - Opening balance and date, and how many transactions use the account.
+  - **Edit**, **Archive** or **Restore**, and **Transactions**. The last is a link to `/transactions?account=<id>`, which opens the table filtered to that account across all months.
+- Cards keep their order when archived or restored, so keyboard focus stays on the toggled button.
+- An empty state with an Add account button appears if there are no accounts.
+
+### Account data model
+
+| Field            | Rules                                                                                          |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| `id`             | Generated (`acct-001`, `acct-002`, …), never reused, never changes. Mock accounts keep their ids (`bpi-savings`, …). |
+| `name`           | Required, trimmed, at most 60 characters. Unique, compared case-insensitively against **all** accounts, archived included. |
+| `type`           | `bank`, `e_wallet`, or `cash`. Can be edited.                                                   |
+| `openingBalance` | Integer centavos, zero or positive. **Not income.** Can't be edited after creation.             |
+| `openingDate`    | A real calendar date. Can't be edited after creation.                                           |
+| `isActive`       | `false` when archived.                                                                          |
+
+There is **no stored balance field.** Balances are always calculated from the opening balance and transaction history with the SW-003 functions.
+
+### Adding and editing
+
+- **Add account** opens a dialog: name, type (Bank, E-wallet, Cash), opening balance (₱, defaults to 0.00), and opening date (defaults to today).
+  - The opening balance uses the same exact pesos-to-centavos parser as transactions, with zero allowed. Negative amounts and more than two decimals are rejected. Nothing is rounded.
+  - Errors appear inline, and the dialog stays open until the form is valid. On success it closes and a message confirms the new account.
+- **Edit** changes only the name and type. The opening balance and date are shown read-only. Changing them would silently rewrite every historical balance, so a future milestone should add an explicit adjustment or reconciliation workflow instead.
+- A duplicate name for an archived account suggests restoring it instead.
+
+### Archiving and restoring
+
+- Accounts are **never deleted**, only archived, so every transaction can always resolve its account.
+- **Archive** asks for confirmation and shows how many transactions use the account and its current balance.
+- Archived accounts:
+  - **Stay in every calculation:** consolidated balance, dashboard totals, and historical month-end balances. Archiving doesn't change any balance.
+  - **Are hidden from new transactions.** The form and the schema both reject them.
+  - **Remain readable on existing transactions.** Editing a transaction that uses an archived account shows it as "GCash (archived)" and lets you keep it, but you can't move a transaction onto a *different* archived account.
+  - **Stay in the transactions account filter** (labelled "(archived)"), so their history can still be filtered.
+- **Restore** is immediate and makes the account selectable again.
+
+### Transaction integration
+
+- The dashboard, transactions table, transaction form, and accounts page all read the same account store, so new accounts appear in forms right away and renames show up everywhere.
+- Income credits an active account ("Received in"), expenses debit one ("Paid from"), and transfers need two different active accounts.
+- A transaction can't be dated before its account's opening date (already enforced by `validateTransaction`). This also applies to new accounts.
+- Account changes never touch the transaction store.
+
+### State
+
+`createAccountStore` follows the transaction store pattern. Its actions return `{ ok: true, account }` or `{ ok: false, error }`, because account changes can fail validation (e.g. duplicate names):
+
+| Action                     | Behavior                                                                                      |
+| -------------------------- | --------------------------------------------------------------------------------------------- |
+| `addAccount(input)`        | Validates (same rules as the form), assigns the next `acct-` id, creates it active            |
+| `updateAccount(id, update)`| Changes name and type only. Extra fields passed at runtime are ignored                        |
+| `archiveAccount(id)`       | Sets `isActive: false`. Safe to repeat                                                        |
+| `restoreAccount(id)`       | Sets `isActive: true`. Safe to repeat                                                         |
+
+Unknown ids return `{ ok: false, error: "This account no longer exists." }`. Every update creates new arrays and objects.
+
+### Activity: pages keep their state
+
+With Cache Components, Next.js 16 doesn't unmount pages when you navigate away. It hides up to three recent pages with React's `<Activity>` and restores their state when you return. So transaction filters survive a visit to the dashboard. The transactions page uses `key={accountId}` so each "View transactions" link starts with fresh filters for that account.
 
 ## Testing
 
@@ -416,6 +503,10 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
 - Filtering and sorting store data after adds and edits
 - Peso parsing (valid formats, malformed input, floating-point edge cases) and calendar-date validation
 - Form schema: valid income, expense, and transfer; every rejection rule; switching types
+- Account names (empty, too long, duplicates across case and archived accounts), opening balances (zero, negative, decimals), and opening dates
+- Account store: creating, editing (name and type only, compile-time and runtime), archiving, restoring, unknown ids, unique ids
+- Archived accounts in transaction forms: kept when already used, rejected for new transactions or reassignment
+- Accounts with transactions: archived accounts in totals, opening balances not counted as income, transfers to new accounts, negative balances, dates before opening, filtering archived history
 
 ## Current features
 
@@ -438,6 +529,10 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Add, edit, and delete income, expenses, and transfers in dialogs
   - React Hook Form + Zod validation with inline errors
   - Shared Zustand store, so the dashboard and table update immediately
+- **SW-006:** account management
+  - Accounts page with consolidated balance and per-account calculated balances
+  - Add, edit (name and type), archive, and restore accounts
+  - Shared account store used by the dashboard, table, and transaction form
 
 ## Development progress
 
@@ -448,7 +543,7 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - [x] **SW-003** — Financial dashboard and mock data (summary cards, month selector, calculation utilities, unit tests)
 - [x] **SW-004** — Transactions table (spreadsheet-style, read-only view with search, filters, sorting, and pagination)
 - [x] **SW-005** — Transaction CRUD (add, edit, and delete transactions; React Hook Form + Zod; shared Zustand store)
-- [ ] **SW-006** — Account management (add, edit, and archive accounts; per-account balances)
+- [x] **SW-006** — Account management (add, edit, archive, and restore accounts; calculated balances; shared account store)
 - [ ] **SW-007** — Category management (add, edit, and archive income and expense categories)
 - [ ] **SW-008** — Persistence and reports (`localStorage`, Reports page, Settings data management)
 
@@ -470,23 +565,24 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - **SW-002 (done):** theme preference (Light, Dark, System). It's currently set from the header theme menu and saved in `localStorage`.
 - **SW-008:** local data management, such as exporting, importing, or clearing data stored in the browser.
 
-**Next milestone:** SW-006 — Account management.
+**Next milestone:** SW-007 — Category management.
 
 ## Current limitations
 
-- **Transactions are currently stored in memory and reset after a full browser refresh. Persistent localStorage support is planned for SW-008.** Client-side navigation between pages keeps them.
-- Accounts and categories are still fixed mock data, so the form can only choose from them. The Accounts, Categories, Reports, and Settings pages are still placeholders.
+- **Transactions are currently stored in memory and reset after a full browser refresh. Persistent localStorage support is planned for SW-008.** The same applies to accounts. Client-side navigation between pages keeps both.
+- Categories are still fixed mock data, so the form can only choose from them. The Categories, Reports, and Settings pages are still placeholders.
+- An account's opening balance and date can't be corrected after creation. A future adjustment or reconciliation workflow is needed for that.
+- Account balances on the Accounts page are as of today. There is no per-account balance history or statement view.
 - Deletion is permanent and has no undo or audit history.
 - Success messages appear inline above the filters. There's no toast system.
-- Once accounts can be archived (SW-006), editing an old transaction on an archived account will require choosing an active account.
-- Filters, sort order, and page aren't kept in the URL. They reset when you leave the page or refresh, and a filtered view can't be bookmarked or shared.
+- Filters, sort order, and page aren't kept in the URL, so a filtered view can't be bookmarked or shared. With Cache Components, Next.js keeps up to three recently visited pages mounted (hidden with React `<Activity>`), so filters survive moving between pages; a full refresh resets them.
 - On mobile the six filter controls stack vertically and take up a lot of space before the results.
 - Search matches descriptions and category names, not account names or amounts.
 - Mock data is fixed to July–November 2026. In later months, the dashboard will default to a month with no data. Every month from July 2026 onward stays selectable.
 - Months are listed in a single dropdown. Once data spans many years, a year selector may be needed.
 - The header date is formatted in the browser after load, so it appears a moment after the rest of the header. It shows the Asia/Manila date (matching the dashboard) in the browser's locale format, and doesn't update if the page stays open past midnight.
 - Chart color tokens (`--chart-1` to `--chart-5`) are still the shadcn/ui grayscale defaults and will be themed when charts are added.
-- Unit tests cover the finance logic, form schema, and store. There are no component or end-to-end tests in the repo; the SW-002 to SW-005 browser checks were run manually with Playwright.
+- Unit tests cover the finance logic, form schemas, and stores. There are no component or end-to-end tests in the repo; the SW-002 to SW-006 browser checks were run manually with Playwright.
 
 ## Planned backend integration
 

@@ -114,9 +114,9 @@ describe("transaction form schema: rejected input", () => {
   });
 
   it("rejects an archived account", () => {
-    expect(errorsFor({ accountId: "old" })).toEqual({ accountId: ["Old Card is archived."] });
+    expect(errorsFor({ accountId: "old" })).toEqual({ accountId: ["Old Card is archived. Choose an active account."] });
     expect(errorsFor({ type: "transfer", accountId: "bank", destinationAccountId: "old" })).toEqual({
-      destinationAccountId: ["Old Card is archived."],
+      destinationAccountId: ["Old Card is archived. Choose an active account."],
     });
   });
 
@@ -165,5 +165,33 @@ describe("form values", () => {
     const { id, ...input } = transfer;
     expect(id).toBe("t1");
     expect(schema.parse(values)).toEqual(input);
+  });
+});
+
+describe("editing transactions that use archived accounts", () => {
+  const original = { id: "t1", type: "expense", amount: 1_000, date: "2026-02-01", description: "Old purchase", accountId: "old", categoryId: "food" } as const;
+  const editSchema = createTransactionFormSchema(
+    [...accounts, { id: "older", name: "Older Card", type: "bank", openingBalance: 0, openingDate: "2026-01-01", isActive: false }],
+    categories,
+    { original },
+  );
+  const values = getFormValuesFromTransaction(original);
+
+  it("keeps the transaction's own archived account valid", () => {
+    expect(editSchema.parse({ ...values, amount: "20.00" })).toMatchObject({ accountId: "old", amount: 2_000 });
+  });
+
+  it("allows moving it to an active account", () => {
+    expect(editSchema.parse({ ...values, accountId: "bank" })).toMatchObject({ accountId: "bank" });
+  });
+
+  it("rejects moving it to a different archived account", () => {
+    const result = editSchema.safeParse({ ...values, accountId: "older" });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map((i) => i.message)).toEqual(["Older Card is archived. Choose an active account."]);
+  });
+
+  it("still rejects archived accounts for new transactions", () => {
+    expect(schema.safeParse({ ...base, accountId: "old" }).success).toBe(false);
   });
 });

@@ -1,5 +1,6 @@
 import { createStore } from "zustand/vanilla";
 
+import { nextSequentialId } from "@/lib/ids";
 import type { Transaction, TransactionInput } from "@/types/finance";
 
 export type TransactionStore = {
@@ -13,25 +14,9 @@ export type TransactionStore = {
   deleteTransaction: (id: string) => Transaction | null;
 };
 
-/**
- * Next id in the "txn-001" sequence: one more than the highest existing
- * number, skipping any id already taken. Deterministic, so tests and
- * server/client renders always agree.
- */
+/** Next transaction id: "txn-001", "txn-002", … (never reuses a taken id). */
 export function generateTransactionId(existing: readonly Transaction[]): string {
-  const taken = new Set(existing.map((t) => t.id));
-  let next =
-    existing.reduce((max, t) => {
-      const match = /^txn-(\d+)$/.exec(t.id);
-      return match ? Math.max(max, Number(match[1])) : max;
-    }, 0) + 1;
-
-  let id = `txn-${String(next).padStart(3, "0")}`;
-  while (taken.has(id)) {
-    next += 1;
-    id = `txn-${String(next).padStart(3, "0")}`;
-  }
-  return id;
+  return nextSequentialId("txn", existing.map((t) => t.id));
 }
 
 /**

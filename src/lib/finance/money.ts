@@ -41,13 +41,22 @@ export type ParseAmountResult =
 /**
  * Parses a peso amount typed by a person ("1250", "1,250.50") into integer
  * centavos using string operations only, so "0.1" becomes exactly 10.
- * Malformed input is rejected, never rounded.
+ * Malformed input is rejected, never rounded. Zero is rejected unless
+ * `allowZero` is set (e.g. for opening balances).
  */
-export function parsePesosToCentavos(input: string): ParseAmountResult {
+export function parsePesosToCentavos(
+  input: string,
+  { allowZero = false }: { allowZero?: boolean } = {},
+): ParseAmountResult {
   const value = input.trim();
 
   if (value === "") return { ok: false, error: "Enter an amount." };
-  if (/^-/.test(value)) return { ok: false, error: "Amount must be greater than zero." };
+  if (/^-/.test(value)) {
+    return {
+      ok: false,
+      error: allowZero ? "Amount can't be negative." : "Amount must be greater than zero.",
+    };
+  }
   if (/^(\d+|\d{1,3}(,\d{3})+)\.\d{3,}$/.test(value)) {
     return { ok: false, error: "Use at most two decimal places." };
   }
@@ -63,7 +72,9 @@ export function parsePesosToCentavos(input: string): ParseAmountResult {
   if (pesos.length > 9) return { ok: false, error: "Amount is too large." };
 
   const amount = Number(pesos) * 100 + Number(centavos);
-  if (amount === 0) return { ok: false, error: "Amount must be greater than zero." };
+  if (amount === 0 && !allowZero) {
+    return { ok: false, error: "Amount must be greater than zero." };
+  }
   if (amount > MAX_AMOUNT) return { ok: false, error: "Amount is too large." };
   return { ok: true, value: amount };
 }
