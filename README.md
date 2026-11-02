@@ -84,11 +84,14 @@ spendwise/
 │   │   │   └── settings/page.tsx
 │   │   ├── globals.css             # Tailwind v4 import, theme tokens (CSS variables)
 │   │   ├── layout.tsx              # Root layout: fonts, metadata, ThemeProvider
-│   │   └── favicon.ico
+│   │   ├── favicon.ico         # Favicon (16/32/48 px), generated from the logo artwork
+│   │   ├── icon.png            # 512 px app icon (Next.js adds the <link> tags automatically)
+│   │   └── apple-icon.png      # 180 px Apple touch icon (opaque, on the logo's teal)
 │   ├── components/
 │   │   ├── layout/                 # App shell components
 │   │   │   ├── app-header.tsx      # Page title/description, date, theme menu, drawer trigger
 │   │   │   ├── app-sidebar.tsx     # Desktop sidebar and the shared AppBrand
+│   │   │   ├── app-logo.tsx        # The logo mark (next/image), used by every brand lockup
 │   │   │   ├── mobile-navigation.tsx # Drawer navigation below the `lg` breakpoint
 │   │   │   ├── page-placeholder.tsx  # "Coming soon" state (unused since SW-008B; kept for future sections)
 │   │   │   ├── sidebar-nav.tsx     # Navigation links with active-route highlighting
@@ -133,6 +136,8 @@ spendwise/
 │   │   │   └── delete-transaction-dialog.tsx # Delete confirmation (alert dialog)
 │   │   └── ui/                     # shadcn/ui components (alert-dialog, button, card, dialog, dropdown-menu,
 │   │                               #   field, input, label, select, separator, sheet, table)
+│   ├── assets/
+│   │   └── spendwise-logo.png      # Logo mark (peso sign over rising bars), 256 px
 │   ├── config/
 │   │   ├── category-appearance.ts  # Category icon keys → Lucide icons, color keys → classes
 │   │   └── navigation.ts           # Routes, titles, descriptions, icons (single source)

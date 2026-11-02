@@ -8,10 +8,10 @@ import {
   ReceiptTextIcon,
   TagsIcon,
   WalletCardsIcon,
-  WalletIcon,
   type LucideIcon,
 } from "lucide-react";
 
+import { AppLogo } from "@/components/layout/app-logo";
 import { LandingMotion } from "@/components/landing/landing-motion";
 import styles from "@/components/landing/landing.module.css";
 import {
@@ -218,9 +218,7 @@ function LandingHeader() {
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/90">
       <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
         <Link href="/" className="flex items-center gap-2.5 rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <WalletIcon className="size-4" aria-hidden="true" />
-          </span>
+          <AppLogo />
           <span className="font-heading text-base font-semibold tracking-tight">Spend Wise</span>
         </Link>
         <nav aria-label="Landing page" className="ml-auto hidden md:block">

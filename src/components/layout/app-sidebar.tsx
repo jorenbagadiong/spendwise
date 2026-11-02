@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { WalletIcon } from "lucide-react";
-
+import { AppLogo } from "@/components/layout/app-logo";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 
 export function AppBrand() {
@@ -9,9 +8,7 @@ export function AppBrand() {
       href="/dashboard"
       className="flex items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
     >
-      <span className="flex size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-        <WalletIcon className="size-4" aria-hidden="true" />
-      </span>
+      <AppLogo />
       <span className="font-heading text-base font-semibold tracking-tight">
         Spend Wise Tracker
       </span>

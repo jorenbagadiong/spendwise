@@ -13,7 +13,10 @@ import {
   WalletCardsIcon,
 } from "lucide-react";
 
-import { SummaryCard, type SummaryTone } from "@/components/dashboard/summary-card";
+import {
+  SummaryCard,
+  type SummaryTone,
+} from "@/components/dashboard/summary-card";
 import { buttonVariants } from "@/components/ui/button";
 import {
   Select,
@@ -43,12 +46,17 @@ type FinancialDashboardProps = {
   timeOfDay: TimeOfDay;
 };
 
-export function FinancialDashboard({ today, timeOfDay }: FinancialDashboardProps) {
+export function FinancialDashboard({
+  today,
+  timeOfDay,
+}: FinancialDashboardProps) {
   // Shared stores, so changes on other pages show up here.
   const accounts = useAccountStore((state) => state.accounts);
   const transactions = useTransactionStore((state) => state.transactions);
   const fullName = useProfileState((state) => state.profile?.fullName ?? null);
-  const isDemo = useProfileState((state) => state.profile?.workspaceMode === "demo");
+  const isDemo = useProfileState(
+    (state) => state.profile?.workspaceMode === "demo",
+  );
   const monthSelectLabelId = useId();
   const [month, setMonth] = useState<MonthKey>(getMonthKey(today));
 
@@ -62,7 +70,11 @@ export function FinancialDashboard({ today, timeOfDay }: FinancialDashboardProps
   const monthLabel = formatMonthLabel(month);
   const isEmpty = summary.transactionCount === 0;
   const netTone: SummaryTone =
-    summary.netCashFlow > 0 ? "income" : summary.netCashFlow < 0 ? "expense" : "neutral";
+    summary.netCashFlow > 0
+      ? "income"
+      : summary.netCashFlow < 0
+        ? "expense"
+        : "neutral";
   const balanceDescription =
     summary.balanceAsOf === today
       ? `All accounts as of today, ${formatDateLabel(today)}`
@@ -77,15 +89,22 @@ export function FinancialDashboard({ today, timeOfDay }: FinancialDashboardProps
 
   const greeting = (
     <div className="flex flex-col gap-1">
-      <h2 className="font-heading text-2xl font-semibold tracking-tight [overflow-wrap:anywhere]">
+      <h2 className="font-heading text-2xl font-semibold tracking-tight wrap-anywhere">
         {formatGreeting(timeOfDay, fullName)}
       </h2>
       {isDemo && (
         <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
-          <SparklesIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <SparklesIcon
+            className="mt-0.5 size-3.5 shrink-0"
+            aria-hidden="true"
+          />
           <span>
-            You&apos;re exploring demo data: these accounts and transactions are examples.{" "}
-            <Link href="/settings#demo-data" className="font-medium text-foreground underline underline-offset-4">
+            You&apos;re exploring demo data: these accounts and transactions are
+            examples.{" "}
+            <Link
+              href="/settings#demo-data"
+              className="font-medium text-foreground underline underline-offset-4"
+            >
               Start fresh with your own data
             </Link>
           </span>
@@ -111,10 +130,14 @@ export function FinancialDashboard({ today, timeOfDay }: FinancialDashboardProps
             Let&apos;s set up your finances.
           </h3>
           <p className="max-w-md text-sm text-muted-foreground">
-            Start by adding your first account, then record your income and expenses.
+            Start by adding your first account, then record your income and
+            expenses.
           </p>
           {/* A real link styled as a button: it navigates, so it must be announced as a link. */}
-          <Link href="/accounts?new=1" className={buttonVariants({ className: "mt-1" })}>
+          <Link
+            href="/accounts?new=1"
+            className={buttonVariants({ className: "mt-1" })}
+          >
             <PlusIcon data-icon="inline-start" aria-hidden="true" />
             Add your first account
           </Link>
@@ -141,7 +164,11 @@ export function FinancialDashboard({ today, timeOfDay }: FinancialDashboardProps
           <span id={monthSelectLabelId} className="text-sm font-medium">
             Month
           </span>
-          <Select items={monthOptions} value={month} onValueChange={handleMonthChange}>
+          <Select
+            items={monthOptions}
+            value={month}
+            onValueChange={handleMonthChange}
+          >
             <SelectTrigger
               aria-labelledby={monthSelectLabelId}
               className="w-full sm:w-48"
@@ -195,7 +222,10 @@ export function FinancialDashboard({ today, timeOfDay }: FinancialDashboardProps
 
       {isEmpty && (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border px-6 py-10 text-center">
-          <CalendarX2Icon className="size-6 text-muted-foreground" aria-hidden="true" />
+          <CalendarX2Icon
+            className="size-6 text-muted-foreground"
+            aria-hidden="true"
+          />
           <p className="font-medium">No transactions in {monthLabel}</p>
           <p className="max-w-md text-sm text-muted-foreground">
             Income, expenses, and net cash flow are ₱0.00 for this month. The

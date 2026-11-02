@@ -6,9 +6,10 @@ import {
   HardDriveIcon,
   LockKeyholeIcon,
   ScaleIcon,
-  WalletIcon,
+  type LucideIcon,
 } from "lucide-react";
 
+import { AppLogo } from "@/components/layout/app-logo";
 import { categoryColorClasses } from "@/config/category-appearance";
 import { formatCurrency } from "@/lib/finance/money";
 import { formatPercentOf } from "@/lib/finance/reports";
@@ -45,7 +46,7 @@ function SampleLabel() {
   return <span className="rounded-md bg-muted px-1.5 py-0.5 text-[0.65rem] font-medium text-muted-foreground">Sample month</span>;
 }
 
-function Stat({ label, value, tone, icon: Icon }: { label: string; value: string; tone: "income" | "expense" | "neutral"; icon: typeof WalletIcon }) {
+function Stat({ label, value, tone, icon: Icon }: { label: string; value: string; tone: "income" | "expense" | "neutral"; icon: LucideIcon }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-xl bg-muted/50 p-3">
       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -65,9 +66,7 @@ export function HeroVisual() {
         <div className={cn(styles.heroBase, glass, "relative flex flex-col gap-4 p-5")}>
           <div className="flex items-center justify-between gap-2">
             <span className="flex items-center gap-2 text-sm font-medium">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <WalletIcon className="size-3.5" />
-              </span>
+              <AppLogo size={28} />
               Monthly summary
             </span>
             <SampleLabel />

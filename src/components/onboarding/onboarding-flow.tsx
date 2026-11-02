@@ -19,10 +19,10 @@ import {
   TagsIcon,
   TriangleAlertIcon,
   WalletCardsIcon,
-  WalletIcon,
   type LucideIcon,
 } from "lucide-react";
 
+import { AppLogo } from "@/components/layout/app-logo";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -144,9 +144,7 @@ export function OnboardingFlow({ plan: currentPlan }: { plan: keyof typeof steps
     <div className="flex min-h-dvh flex-col items-center bg-background px-4 py-8 sm:py-12">
       <div className="flex w-full max-w-xl flex-col gap-6">
         <div className="flex items-center gap-2.5">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <WalletIcon className="size-4" aria-hidden="true" />
-          </span>
+          <AppLogo />
           <span className="font-heading text-base font-semibold tracking-tight">Spend Wise Tracker</span>
         </div>
 
