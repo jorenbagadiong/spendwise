@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 
 import { TransactionsView } from "@/components/transactions/transactions-view";
-import { mockCategories } from "@/data/mock-finance";
 import { getTodayInManila } from "@/lib/finance/months";
 
 export const metadata: Metadata = {
@@ -36,7 +35,6 @@ async function Transactions({
     // The key gives each ?account= value its own fresh filter state.
     <TransactionsView
       key={initialAccountId ?? "all"}
-      categories={mockCategories}
       today={today}
       initialAccountId={initialAccountId}
     />

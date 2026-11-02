@@ -221,7 +221,7 @@ function NameAndTypeFields({
             <label
               key={value}
               className={cn(
-                "flex cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground transition-colors",
+                "relative flex cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground transition-colors",
                 "has-checked:bg-background has-checked:text-foreground has-checked:shadow-sm",
                 "has-focus-visible:ring-3 has-focus-visible:ring-ring/50",
               )}

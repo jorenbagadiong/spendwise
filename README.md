@@ -88,6 +88,11 @@ spendwise/
 │   │   │   ├── accounts-view.tsx   # Summary, account cards, notices (client)
 │   │   │   ├── account-form-dialog.tsx # Add/edit account form (React Hook Form + Zod)
 │   │   │   └── archive-account-dialog.tsx # Archive confirmation (alert dialog)
+│   │   ├── categories/
+│   │   │   ├── categories-view.tsx # Summary, type filter, category list, notices (client)
+│   │   │   ├── category-form-dialog.tsx # Add/edit category: name, type, icon, color
+│   │   │   ├── archive-category-dialog.tsx # Archive confirmation (alert dialog)
+│   │   │   └── category-icon-badge.tsx # Category icon on its color
 │   │   ├── dashboard/
 │   │   │   ├── financial-dashboard.tsx # Month selector, summary cards, empty state (client)
 │   │   │   └── summary-card.tsx    # Reusable summary card (title, value, icon, tone)
@@ -98,6 +103,7 @@ spendwise/
 │   │   └── ui/                     # shadcn/ui components (alert-dialog, button, card, dialog, dropdown-menu,
 │   │                               #   field, input, label, select, separator, sheet, table)
 │   ├── config/
+│   │   ├── category-appearance.ts  # Category icon keys → Lucide icons, color keys → classes
 │   │   └── navigation.ts           # Routes, titles, descriptions, icons (single source)
 │   ├── data/
 │   │   ├── mock-finance.ts         # Deterministic sample accounts, categories, transactions
@@ -105,6 +111,7 @@ spendwise/
 │   ├── lib/
 │   │   ├── finance/
 │   │   │   ├── accounts.ts         # Account name rules, account form schemas, selectable accounts
+│   │   │   ├── categories.ts       # Category rules, icon/color lists, form schema, selectable categories, usage
 │   │   │   ├── calculations.ts     # Pure income/expense/balance/summary functions
 │   │   │   ├── money.ts            # formatCurrency (centavos → "₱1,234.56")
 │   │   │   ├── months.ts           # Month keys, labels, Asia/Manila "today", reporting cutoff
@@ -118,6 +125,9 @@ spendwise/
 │   │   ├── account-store.ts        # Zustand store factory: accounts + add/update/archive/restore
 │   │   ├── account-store-provider.tsx # React context provider and useAccountStore hook
 │   │   ├── account-store.test.ts
+│   │   ├── category-store.ts       # Zustand store factory: categories + add/update/archive/restore
+│   │   ├── category-store-provider.tsx # React context provider and useCategoryStore hook
+│   │   ├── category-store.test.ts
 │   │   ├── transaction-store.ts    # Zustand store factory: transactions + add/update/delete
 │   │   ├── transaction-store-provider.tsx # React context provider and useTransactionStore hook
 │   │   └── transaction-store.test.ts
@@ -142,7 +152,7 @@ A `src/hooks` folder will be added only when a milestone needs it.
 | `/dashboard`    | Financial summary dashboard            | SW-003 (done)                                               |
 | `/transactions` | Transaction table with add/edit/delete | SW-004 (done), SW-005 (done)                                |
 | `/accounts`     | Account management                     | SW-006 (done)                                               |
-| `/categories`   | Categories (placeholder)               | SW-007                                                      |
+| `/categories`   | Category management                    | SW-007 (done)                                               |
 | `/reports`      | Reports (placeholder)                  | SW-008                                                      |
 | `/settings`     | Settings (placeholder)                 | SW-002 (theme, in the header menu), SW-008 (local data)     |
 
@@ -173,7 +183,7 @@ Defined in `src/types/finance.ts`.
 - **Money is stored as integer centavos** (`₱18,500.00` → `1_850_000`). Integers add and subtract exactly; floating-point pesos don't (`0.1 + 0.2 !== 0.3`). Pesos only appear when formatting for display.
 - **Dates** are calendar dates in Asia/Manila, stored as `"YYYY-MM-DD"` strings. Months are `"YYYY-MM"`. Because these are plain calendar dates, filtering by month is a string comparison with no time zone conversion.
 - **Account:** `id`, `name`, `type` (`cash` | `bank` | `e_wallet`), `openingBalance` (centavos), `openingDate`, `isActive`.
-- **Category:** `id`, `name`, `type` (`income` | `expense`), `icon` (a Lucide icon identifier).
+- **Category:** `id`, `name`, `type` (`income` | `expense`), `icon` (a Lucide icon identifier), `color` (a palette key), and `isActive` (added in SW-007).
 - **Transaction:** a discriminated union on `type`:
   - `income` / `expense`: require `categoryId` and can't have `destinationAccountId`.
   - `transfer`: requires `destinationAccountId` and can't have `categoryId`.
@@ -188,7 +198,7 @@ Defined in `src/types/finance.ts`.
 
 ## Mock data
 
-`src/data/mock-finance.ts` holds fixed sample data in Philippine pesos. It is plain data, separate from the UI, and never randomly generated. The mock transactions (SW-005) and accounts (SW-006) seed the in-memory stores; the categories are still read directly.
+`src/data/mock-finance.ts` holds fixed sample data in Philippine pesos. It is plain data, separate from the UI, and never randomly generated. The mock transactions (SW-005), accounts (SW-006), and categories (SW-007) seed the in-memory stores.
 
 - **Accounts (opened Jul 1, 2026):**
   - BPI Savings (bank, ₱45,000.00)
@@ -369,7 +379,7 @@ The form uses React Hook Form with a Zod schema (`createTransactionFormSchema` i
 | Date         | A real calendar date, not before the account's opening date                                              |
 | Description  | Required, not whitespace-only, at most 120 characters, trimmed when saved                                |
 | Account(s)   | Must exist and be active (or, when editing, be the archived account the transaction already used). A transfer's source and destination must differ. |
-| Category     | Required for income and expenses, must exist and match the type. Transfers have no category.            |
+| Category     | Required for income and expenses, must exist, match the type, and be active (or, when editing, be the archived category the transaction already used). Transfers have no category. |
 
 **Pesos to centavos:** `parsePesosToCentavos` (`src/lib/finance/money.ts`) converts the typed text using string operations only. `"0.29"` becomes exactly `29`, whereas `0.29 * 100` in floating point is `28.999999999999996`.
 
@@ -377,15 +387,19 @@ The form uses React Hook Form with a Zod schema (`createTransactionFormSchema` i
 
 ```
 (app)/layout.tsx
-└── AccountStoreProvider            ← accounts store (SW-006), seeded with mock accounts
-    └── TransactionStoreProvider    ← transactions store, seeded with mock transactions
-        ├── /dashboard    → FinancialDashboard   reads accounts + transactions
-        ├── /transactions → TransactionsView     reads accounts + transactions
-        │                    ├── TransactionFormDialog   calls addTransaction / updateTransaction
-        │                    └── DeleteTransactionDialog calls deleteTransaction
-        └── /accounts     → AccountsView         reads accounts + transactions
-                             ├── AccountFormDialog       calls addAccount / updateAccount
-                             └── ArchiveAccountDialog    calls archiveAccount (restore is a button)
+└── AccountStoreProvider              ← accounts store (SW-006)
+    └── CategoryStoreProvider         ← categories store (SW-007)
+        └── TransactionStoreProvider  ← transactions store; validates against accounts + categories
+            ├── /dashboard    → FinancialDashboard   reads accounts + transactions
+            ├── /transactions → TransactionsView     reads accounts + categories + transactions
+            │                    ├── TransactionFormDialog   calls addTransaction / updateTransaction
+            │                    └── DeleteTransactionDialog calls deleteTransaction
+            ├── /accounts     → AccountsView         reads accounts + transactions
+            │                    ├── AccountFormDialog       calls addAccount / updateAccount
+            │                    └── ArchiveAccountDialog    calls archiveAccount (restore is a button)
+            └── /categories   → CategoriesView       reads categories + transactions
+                                 ├── CategoryFormDialog      calls addCategory / updateCategory
+                                 └── ArchiveCategoryDialog   calls archiveCategory (restore is a button)
 ```
 
 - **One source of truth:** the store holds the transactions array and three actions. Pages never copy transactions into their own state.
@@ -394,8 +408,8 @@ The form uses React Hook Form with a Zod schema (`createTransactionFormSchema` i
 
 | Action                           | Behavior                                                                                       |
 | -------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `addTransaction(input)`          | Assigns the next id (`txn-031`, `txn-032`, …; never reuses a taken id) and returns the record  |
-| `updateTransaction(id, input)`   | Replaces the whole record (so fields from an old type don't linger), keeps the id. Returns `null` for an unknown id |
+| `addTransaction(input)`          | Validates (see SW-007), assigns the next id (`txn-031`, `txn-032`, …; never reuses a taken id), and returns `{ ok: true, transaction }` |
+| `updateTransaction(id, input)`   | Validates, then replaces the whole record (so fields from an old type don't linger) and keeps the id. Unknown ids return `{ ok: false, error }` |
 | `deleteTransaction(id)`          | Removes the record and returns it. Returns `null` for an unknown id                            |
 
 - **Immutable updates:** every action creates a new array, so React and Zustand detect changes by reference.
@@ -475,6 +489,82 @@ Unknown ids return `{ ok: false, error: "This account no longer exists." }`. Eve
 
 With Cache Components, Next.js 16 doesn't unmount pages when you navigate away. It hides up to three recent pages with React's `<Activity>` and restores their state when you return. So transaction filters survive a visit to the dashboard. The transactions page uses `key={accountId}` so each "View transactions" link starts with fresh filters for that account.
 
+## Category management (SW-007)
+
+`/categories` manages the income and expense categories that transactions use.
+
+> Categories are stored in memory like transactions and accounts, and reset after a full browser refresh. Persistent localStorage support is planned for SW-008.
+
+### Categories page
+
+- **Summary:** total, income, and expense category counts, each with how many are archived.
+- **Filter:** All, Income, or Expense, a radio group showing a count for each. Add category preselects the filtered type.
+- **List**, one row per category:
+  - Icon on its color, name, and type.
+  - Usage count (number of transactions), Active/Archived status.
+  - **Edit** and **Archive** or **Restore**.
+- Rows keep their order when archived or restored, so focus stays on the toggled button.
+- Empty states for no categories at all and for a filter with no matches.
+
+### Category data model and rules
+
+| Field      | Rules                                                                                              |
+| ---------- | -------------------------------------------------------------------------------------------------- |
+| `id`       | Generated (`cat-001`, …), never reused, never changes. Mock categories keep their ids (`food`, …). |
+| `name`     | Required, trimmed, at most 50 characters. Unique **within its type**, compared case-insensitively, archived categories included. "Other" can exist once as income and once as expense. |
+| `type`     | `income` or `expense`. **Can't change after creation**, so existing transactions stay valid.      |
+| `icon`     | One of 25 Lucide icons (`CATEGORY_ICONS`). Anything else is rejected.                              |
+| `color`    | One of 11 palette colors (`CATEGORY_COLORS`). Anything else is rejected.                           |
+| `isActive` | `false` when archived.                                                                            |
+
+- Categories are **never deleted**, only archived, so every transaction can always resolve its category.
+- Transfers never have a category. The transaction model makes `categoryId` impossible on a transfer, and changing a transaction to a transfer drops its category.
+- Icon keys map to Lucide components, and color keys to Tailwind classes, in one file (`src/config/category-appearance.ts`). Records keyed by the union types make TypeScript flag any icon or color without a mapping. The existing theme colors are unchanged.
+
+### Adding and editing
+
+- **Add category** opens a dialog: name, type (Expense or Income), an icon picker, and a color picker, with a live preview. The pickers are radio groups, so arrow keys move through them.
+- Errors appear inline under the field. The dialog stays open until the form is valid.
+- **Edit** changes the name, icon, and color. The type is shown but can't be changed. Archived categories can be edited too.
+- `createCategoryFormSchema` (Zod) handles both modes. When editing, it ignores any submitted type and checks duplicates against the category's real type.
+
+### Archiving and restoring
+
+- **Archive** asks for confirmation and says how many transactions use the category.
+- Archived categories:
+  - **Stay on historical transactions,** which still show the category name, and in totals. Archiving changes no amounts.
+  - **Are hidden from new transactions** in the form, and rejected by the store.
+  - **Stay on the transaction being edited.** Editing a transaction that uses one shows it as "Shopping (archived)", and it can be kept, but no transaction can be moved onto a *different* archived category.
+  - **Stay in the transactions category filter** (labelled "(archived)"), so their history can still be filtered.
+- **Restore** is immediate and makes the category selectable again.
+
+### Transaction integration
+
+- The transactions table, filters, search, and form all read the shared category store. New categories appear in the form immediately, and renames show up in the table, the filter, and search.
+- The form lists only categories of the selected type: income categories for income, expense categories for expenses, and none for transfers. Switching type clears a category that no longer fits.
+- **Validation at the state-action boundary:** `addTransaction` and `updateTransaction` now check every transaction with `validateTransactionChange` (`src/lib/finance/validation.ts`) before saving. This covers:
+  - Accounts and categories exist.
+  - The category type matches the transaction type.
+  - Accounts and categories are active, except the archived ones the edited transaction already used.
+  - Opening dates and distinct transfer accounts.
+  - The form schema runs the same function, so the UI and the store can't disagree. A rejected save returns `{ ok: false, error, issues }`, and the form shows each issue under its field.
+- The transaction store reads accounts and categories through getters passed in by its provider. That's why `TransactionStoreProvider` sits inside the account and category providers.
+
+### Usage counts
+
+`countCategoryUsage` counts the income and expense transactions that use a category. Transfers are never counted. It's calculated from the current transaction store on every render and never stored, so it updates after any add, edit, or delete.
+
+### State
+
+| Action                        | Behavior                                                                          |
+| ----------------------------- | --------------------------------------------------------------------------------- |
+| `addCategory(input)`          | Validates name, type, icon, and color, assigns the next `cat-` id, creates it active |
+| `updateCategory(id, update)`  | Changes name, icon, and color only (`CategoryUpdate` has no `type`)               |
+| `archiveCategory(id)`         | Sets `isActive: false`. Safe to repeat                                            |
+| `restoreCategory(id)`         | Sets `isActive: true`. Safe to repeat                                             |
+
+Results are `{ ok: true, category }` or `{ ok: false, error }`. Unknown ids return "This category no longer exists."
+
 ## Testing
 
 ```bash
@@ -507,6 +597,10 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
 - Account store: creating, editing (name and type only, compile-time and runtime), archiving, restoring, unknown ids, unique ids
 - Archived accounts in transaction forms: kept when already used, rejected for new transactions or reassignment
 - Accounts with transactions: archived accounts in totals, opening balances not counted as income, transfers to new accounts, negative balances, dates before opening, filtering archived history
+- Category names (empty, too long, duplicates within a type across case and archived categories), unsupported icons and colors, and the immutable type (compile time and runtime)
+- Category store: creating, editing (including archived categories), archiving, restoring, missing ids, unique ids
+- Transaction store validation at the action boundary: nonexistent, wrong-type, and archived categories; archived accounts; keeping an edited transaction's own archived category but not reassigning to another; transfers without categories
+- Selectable categories per type, usage counts after transaction changes (transfers excluded), renamed-category search, archived-category filtering
 
 ## Current features
 
@@ -533,6 +627,10 @@ Unit tests (`*.test.ts`) sit next to the code they test and use small, fixed fix
   - Accounts page with consolidated balance and per-account calculated balances
   - Add, edit (name and type), archive, and restore accounts
   - Shared account store used by the dashboard, table, and transaction form
+- **SW-007:** category management
+  - Categories page with type filter, usage counts, add/edit (name, icon, color), archive, and restore
+  - Shared category store used by the transaction table, filters, search, and form
+  - Transaction store validates accounts and categories itself
 
 ## Development progress
 
@@ -544,7 +642,7 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - [x] **SW-004** — Transactions table (spreadsheet-style, read-only view with search, filters, sorting, and pagination)
 - [x] **SW-005** — Transaction CRUD (add, edit, and delete transactions; React Hook Form + Zod; shared Zustand store)
 - [x] **SW-006** — Account management (add, edit, archive, and restore accounts; calculated balances; shared account store)
-- [ ] **SW-007** — Category management (add, edit, and archive income and expense categories)
+- [x] **SW-007** — Category management (add, edit, archive, and restore categories; icons and colors; usage counts; shared category store)
 - [ ] **SW-008** — Persistence and reports (`localStorage`, Reports page, Settings data management)
 
 ### Milestone dependencies
@@ -565,12 +663,14 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - **SW-002 (done):** theme preference (Light, Dark, System). It's currently set from the header theme menu and saved in `localStorage`.
 - **SW-008:** local data management, such as exporting, importing, or clearing data stored in the browser.
 
-**Next milestone:** SW-007 — Category management.
+**Next milestone:** SW-008 — Persistence and reports.
 
 ## Current limitations
 
 - **Transactions are currently stored in memory and reset after a full browser refresh. Persistent localStorage support is planned for SW-008.** The same applies to accounts. Client-side navigation between pages keeps both.
-- Categories are still fixed mock data, so the form can only choose from them. The Categories, Reports, and Settings pages are still placeholders.
+- Categories are stored in memory like accounts and transactions, and reset on a full refresh. The Reports and Settings pages are still placeholders.
+- Category icons and colors appear on the Categories page only. The transaction table shows category names without icons.
+- A category can't be merged into another, and its type can't change. To move transactions to another category, edit them one at a time.
 - An account's opening balance and date can't be corrected after creation. A future adjustment or reconciliation workflow is needed for that.
 - Account balances on the Accounts page are as of today. There is no per-account balance history or statement view.
 - Deletion is permanent and has no undo or audit history.
@@ -582,7 +682,7 @@ A story is checked only when its acceptance criteria and verification checks (ty
 - Months are listed in a single dropdown. Once data spans many years, a year selector may be needed.
 - The header date is formatted in the browser after load, so it appears a moment after the rest of the header. It shows the Asia/Manila date (matching the dashboard) in the browser's locale format, and doesn't update if the page stays open past midnight.
 - Chart color tokens (`--chart-1` to `--chart-5`) are still the shadcn/ui grayscale defaults and will be themed when charts are added.
-- Unit tests cover the finance logic, form schemas, and stores. There are no component or end-to-end tests in the repo; the SW-002 to SW-006 browser checks were run manually with Playwright.
+- Unit tests cover the finance logic, form schemas, and stores. There are no component or end-to-end tests in the repo; the SW-002 to SW-007 browser checks were run manually with Playwright.
 
 ## Planned backend integration
 

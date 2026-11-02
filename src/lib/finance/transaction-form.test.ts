@@ -14,8 +14,8 @@ const accounts: Account[] = [
   { id: "old", name: "Old Card", type: "bank", openingBalance: 0, openingDate: "2026-01-01", isActive: false },
 ];
 const categories: Category[] = [
-  { id: "salary", name: "Salary", type: "income", icon: "briefcase" },
-  { id: "food", name: "Food", type: "expense", icon: "utensils" },
+  { id: "salary", name: "Salary", type: "income", icon: "briefcase", color: "slate", isActive: true },
+  { id: "food", name: "Food", type: "expense", icon: "utensils", color: "slate", isActive: true },
 ];
 
 const schema = createTransactionFormSchema(accounts, categories);

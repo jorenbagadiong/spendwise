@@ -13,9 +13,9 @@ import {
 import type { Category, Transaction } from "@/types/finance";
 
 const categories: Category[] = [
-  { id: "salary", name: "Salary", type: "income", icon: "briefcase" },
-  { id: "food", name: "Food", type: "expense", icon: "utensils" },
-  { id: "bills", name: "Bills", type: "expense", icon: "receipt" },
+  { id: "salary", name: "Salary", type: "income", icon: "briefcase", color: "slate", isActive: true },
+  { id: "food", name: "Food", type: "expense", icon: "utensils", color: "slate", isActive: true },
+  { id: "bills", name: "Bills", type: "expense", icon: "receipt", color: "slate", isActive: true },
 ];
 
 // Ids are deliberately out of date order to exercise tie-breaking.

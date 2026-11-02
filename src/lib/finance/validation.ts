@@ -1,4 +1,4 @@
-import type { Account, Category, TransactionInput } from "@/types/finance";
+import type { Account, Category, Transaction, TransactionInput } from "@/types/finance";
 import { isValidIsoDate } from "@/lib/finance/months";
 
 export type ValidationIssue = {
@@ -55,6 +55,49 @@ export function validateTransaction(
         field: "categoryId",
         message: `${category.name} is an ${category.type} category and can't be used for ${transaction.type}.`,
       });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Everything a new or edited transaction must satisfy against the current
+ * accounts and categories: the rules above plus "only active accounts and
+ * categories". When editing, pass `original`: an archived account or
+ * category it already uses stays allowed, but nothing can be moved onto a
+ * different archived one. Used by both the form schema and the store
+ * actions, so the rules hold even if the UI is bypassed.
+ */
+export function validateTransactionChange(
+  transaction: TransactionInput,
+  accounts: readonly Account[],
+  categories: readonly Category[],
+  original?: Transaction | null,
+): ValidationIssue[] {
+  const issues = validateTransaction(transaction, accounts, categories);
+
+  const keptAccounts = new Set([original?.accountId, original?.destinationAccountId]);
+  const accountFields = transaction.type === "transfer"
+    ? (["accountId", "destinationAccountId"] as const)
+    : (["accountId"] as const);
+  for (const field of accountFields) {
+    const id = field === "accountId" ? transaction.accountId : transaction.destinationAccountId;
+    const account = accounts.find((a) => a.id === id);
+    if (account && !account.isActive && !keptAccounts.has(account.id)) {
+      issues.push({ field, message: `${account.name} is archived. Choose an active account.` });
+    }
+  }
+
+  if (transaction.type !== "transfer") {
+    const category = categories.find((c) => c.id === transaction.categoryId);
+    if (
+      category &&
+      category.type === transaction.type &&
+      !category.isActive &&
+      category.id !== original?.categoryId
+    ) {
+      issues.push({ field: "categoryId", message: `${category.name} is archived. Choose an active category.` });
     }
   }
 

@@ -34,24 +34,65 @@ export type AccountUpdate = Pick<Account, "name" | "type">;
 
 export type CategoryType = "income" | "expense";
 
+/** Lucide icons a category can use (mapped to components in config/category-appearance.ts). */
 export type CategoryIcon =
   | "briefcase"
   | "coins"
+  | "piggy-bank"
+  | "trending-up"
+  | "gift"
   | "utensils"
+  | "coffee"
   | "shopping-basket"
   | "receipt"
+  | "zap"
+  | "wifi"
+  | "smartphone"
+  | "home"
   | "bus"
+  | "car"
+  | "fuel"
+  | "plane"
   | "shopping-bag"
+  | "shirt"
   | "clapperboard"
+  | "heart-pulse"
+  | "graduation-cap"
+  | "baby"
+  | "paw-print"
   | "circle-ellipsis";
+
+/** Fixed color palette for categories (mapped to classes in config/category-appearance.ts). */
+export type CategoryColor =
+  | "emerald"
+  | "teal"
+  | "sky"
+  | "blue"
+  | "violet"
+  | "pink"
+  | "rose"
+  | "orange"
+  | "amber"
+  | "lime"
+  | "slate";
 
 export type Category = {
   id: string;
   name: string;
+  /** Can't change after creation. */
   type: CategoryType;
   /** Lucide icon identifier, mapped to a component in the UI layer. */
   icon: CategoryIcon;
+  color: CategoryColor;
+  /** `false` when archived: kept for history, hidden from new transactions. */
+  isActive: boolean;
 };
+
+/** Fields needed to create a category; it starts active with a new id. */
+export type CategoryInput = Pick<Category, "name" | "type" | "icon" | "color">;
+
+/** The only fields that can change after creation (not the type). */
+export type CategoryUpdate = Pick<Category, "name" | "icon" | "color">;
 
 type TransactionBase = {
   id: string;

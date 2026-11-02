@@ -11,7 +11,7 @@ import {
   generateTransactionId,
   type TransactionStoreApi,
 } from "@/stores/transaction-store";
-import type { Account, Category, Transaction } from "@/types/finance";
+import type { Account, Category, Transaction, TransactionInput } from "@/types/finance";
 
 const accounts: Account[] = [
   { id: "bank", name: "Bank", type: "bank", openingBalance: 1_000_000, openingDate: "2026-01-01", isActive: true },
@@ -19,8 +19,8 @@ const accounts: Account[] = [
 ];
 const [bank, wallet] = accounts;
 const categories: Category[] = [
-  { id: "salary", name: "Salary", type: "income", icon: "briefcase" },
-  { id: "food", name: "Food", type: "expense", icon: "utensils" },
+  { id: "salary", name: "Salary", type: "income", icon: "briefcase", color: "slate", isActive: true },
+  { id: "food", name: "Food", type: "expense", icon: "utensils", color: "slate", isActive: true },
 ];
 
 const initial: Transaction[] = [
@@ -29,13 +29,27 @@ const initial: Transaction[] = [
   { id: "txn-003", type: "transfer", amount: 300_000, date: "2026-01-31", description: "ATM", accountId: "bank", destinationAccountId: "wallet" },
 ];
 
+// The store validates references against accounts and categories.
+const references = { getAccounts: () => accounts, getCategories: () => categories };
+
 // A fresh store per test keeps tests isolated from each other.
 let store: TransactionStoreApi;
 beforeEach(() => {
-  store = createTransactionStore(initial);
+  store = createTransactionStore(initial, references);
 });
 
 const state = () => store.getState();
+/** Adds through the store and fails the test if the store rejects it. */
+function add(input: TransactionInput) {
+  const result = state().addTransaction(input);
+  if (!result.ok) throw new Error(result.error);
+  return result.transaction;
+}
+function update(id: string, input: TransactionInput) {
+  const result = state().updateTransaction(id, input);
+  if (!result.ok) throw new Error(result.error);
+  return result.transaction;
+}
 const january = () => calculateMonthlySummary(accounts, state().transactions, "2026-01", "2026-06-01");
 const balance = (account: Account, asOf = "2026-01-31") =>
   calculateAccountBalance(account, state().transactions, asOf);
@@ -48,13 +62,13 @@ describe("initial state", () => {
 
   it("gives each store its own data", () => {
     state().deleteTransaction("txn-001");
-    expect(createTransactionStore(initial).getState().transactions).toHaveLength(3);
+    expect(createTransactionStore(initial, references).getState().transactions).toHaveLength(3);
   });
 });
 
 describe("addTransaction", () => {
   it("creates income and increases the account balance and income total", () => {
-    const created = state().addTransaction({ type: "income", amount: 500_000, date: "2026-01-25", description: "Bonus", accountId: "wallet", categoryId: "salary" });
+    const created = add({ type: "income", amount: 500_000, date: "2026-01-25", description: "Bonus", accountId: "wallet", categoryId: "salary" });
     expect(created).toEqual({ id: "txn-004", type: "income", amount: 500_000, date: "2026-01-25", description: "Bonus", accountId: "wallet", categoryId: "salary" });
     expect(state().transactions.at(-1)).toBe(created);
     expect(january().totalIncome).toBe(2_500_000);
@@ -62,7 +76,7 @@ describe("addTransaction", () => {
   });
 
   it("creates an expense and decreases the account balance", () => {
-    state().addTransaction({ type: "expense", amount: 25_050, date: "2026-01-21", description: "Lunch", accountId: "wallet", categoryId: "food" });
+    add({ type: "expense", amount: 25_050, date: "2026-01-21", description: "Lunch", accountId: "wallet", categoryId: "food" });
     expect(january().totalExpenses).toBe(175_050);
     expect(january().netCashFlow).toBe(2_000_000 - 175_050);
     expect(balance(wallet)).toBe(350_000 - 25_050);
@@ -70,7 +84,7 @@ describe("addTransaction", () => {
 
   it("creates a transfer that moves money without changing income, expenses, or the total", () => {
     const before = january();
-    state().addTransaction({ type: "transfer", amount: 100_000, date: "2026-01-31", description: "Top up", accountId: "wallet", destinationAccountId: "bank" });
+    add({ type: "transfer", amount: 100_000, date: "2026-01-31", description: "Top up", accountId: "wallet", destinationAccountId: "bank" });
     const after = january();
     expect(after.totalIncome).toBe(before.totalIncome);
     expect(after.totalExpenses).toBe(before.totalExpenses);
@@ -81,22 +95,22 @@ describe("addTransaction", () => {
   });
 
   it("generates sequential, unique ids", () => {
-    const a = state().addTransaction({ type: "expense", amount: 1, date: "2026-01-02", description: "a", accountId: "bank", categoryId: "food" });
-    const b = state().addTransaction({ type: "expense", amount: 1, date: "2026-01-02", description: "b", accountId: "bank", categoryId: "food" });
+    const a = add({ type: "expense", amount: 1, date: "2026-01-02", description: "a", accountId: "bank", categoryId: "food" });
+    const b = add({ type: "expense", amount: 1, date: "2026-01-02", description: "b", accountId: "bank", categoryId: "food" });
     expect([a.id, b.id]).toEqual(["txn-004", "txn-005"]);
     expect(new Set(state().transactions.map((t) => t.id)).size).toBe(5);
   });
 
   it("never reuses the id of a deleted transaction that was the highest", () => {
-    state().addTransaction({ type: "expense", amount: 1, date: "2026-01-02", description: "a", accountId: "bank", categoryId: "food" });
+    add({ type: "expense", amount: 1, date: "2026-01-02", description: "a", accountId: "bank", categoryId: "food" });
     state().deleteTransaction("txn-002");
-    const next = state().addTransaction({ type: "expense", amount: 1, date: "2026-01-02", description: "b", accountId: "bank", categoryId: "food" });
+    const next = add({ type: "expense", amount: 1, date: "2026-01-02", description: "b", accountId: "bank", categoryId: "food" });
     expect(next.id).toBe("txn-005");
   });
 
   it("does not mutate the previous array", () => {
     const before = state().transactions;
-    state().addTransaction({ type: "expense", amount: 1, date: "2026-01-02", description: "a", accountId: "bank", categoryId: "food" });
+    add({ type: "expense", amount: 1, date: "2026-01-02", description: "a", accountId: "bank", categoryId: "food" });
     expect(before).toHaveLength(3);
     expect(state().transactions).not.toBe(before);
   });
@@ -104,7 +118,7 @@ describe("addTransaction", () => {
 
 describe("updateTransaction", () => {
   it("edits the amount in place, keeping the id, and recalculates totals", () => {
-    const updated = state().updateTransaction("txn-002", { type: "expense", amount: 200_000, date: "2026-01-20", description: "Groceries", accountId: "bank", categoryId: "food" });
+    const updated = update("txn-002", { type: "expense", amount: 200_000, date: "2026-01-20", description: "Groceries", accountId: "bank", categoryId: "food" });
     expect(updated?.id).toBe("txn-002");
     expect(state().transactions).toHaveLength(3);
     expect(state().transactions[1]).toEqual({ ...initial[1], amount: 200_000 });
@@ -113,14 +127,14 @@ describe("updateTransaction", () => {
   });
 
   it("moves an expense's effect to a different account", () => {
-    state().updateTransaction("txn-002", { type: "expense", amount: 150_000, date: "2026-01-20", description: "Groceries", accountId: "wallet", categoryId: "food" });
+    update("txn-002", { type: "expense", amount: 150_000, date: "2026-01-20", description: "Groceries", accountId: "wallet", categoryId: "food" });
     expect(balance(bank)).toBe(1_000_000 + 2_000_000 - 300_000);
     expect(balance(wallet)).toBe(50_000 + 300_000 - 150_000);
     expect(january().totalAccountBalance).toBe(1_050_000 + 2_000_000 - 150_000);
   });
 
   it("changes a transaction's type and drops fields from the old type", () => {
-    const updated = state().updateTransaction("txn-002", { type: "transfer", amount: 150_000, date: "2026-01-20", description: "Groceries", accountId: "bank", destinationAccountId: "wallet" });
+    const updated = update("txn-002", { type: "transfer", amount: 150_000, date: "2026-01-20", description: "Groceries", accountId: "bank", destinationAccountId: "wallet" });
     expect(updated).toEqual({ id: "txn-002", type: "transfer", amount: 150_000, date: "2026-01-20", description: "Groceries", accountId: "bank", destinationAccountId: "wallet" });
     expect("categoryId" in state().transactions[1]).toBe(false);
     expect(january().totalExpenses).toBe(0);
@@ -128,13 +142,13 @@ describe("updateTransaction", () => {
   });
 
   it("changes a transfer's accounts", () => {
-    state().updateTransaction("txn-003", { type: "transfer", amount: 300_000, date: "2026-01-31", description: "ATM", accountId: "wallet", destinationAccountId: "bank" });
+    update("txn-003", { type: "transfer", amount: 300_000, date: "2026-01-31", description: "ATM", accountId: "wallet", destinationAccountId: "bank" });
     expect(balance(wallet)).toBe(50_000 - 300_000);
     expect(balance(bank)).toBe(1_000_000 + 2_000_000 - 150_000 + 300_000);
   });
 
   it("moving a transaction to another month updates both months and keeps history accurate", () => {
-    state().updateTransaction("txn-001", { type: "income", amount: 2_000_000, date: "2026-02-15", description: "Salary", accountId: "bank", categoryId: "salary" });
+    update("txn-001", { type: "income", amount: 2_000_000, date: "2026-02-15", description: "Salary", accountId: "bank", categoryId: "salary" });
     expect(january().totalIncome).toBe(0);
     expect(calculateMonthlySummary(accounts, state().transactions, "2026-02", "2026-06-01").totalIncome).toBe(2_000_000);
     expect(calculateTotalAccountBalance(accounts, state().transactions, "2026-01-31")).toBe(1_050_000 - 150_000);
@@ -143,7 +157,11 @@ describe("updateTransaction", () => {
 
   it("returns null and changes nothing for a missing id", () => {
     const before = state().transactions;
-    expect(state().updateTransaction("txn-999", { type: "expense", amount: 1, date: "2026-01-02", description: "x", accountId: "bank", categoryId: "food" })).toBeNull();
+    expect(state().updateTransaction("txn-999", { type: "expense", amount: 1, date: "2026-01-02", description: "x", accountId: "bank", categoryId: "food" })).toEqual({
+      ok: false,
+      error: "This transaction no longer exists. It may have been deleted.",
+      issues: [],
+    });
     expect(state().transactions).toBe(before);
   });
 });
@@ -176,8 +194,8 @@ describe("deleteTransaction", () => {
 
 describe("filtering and sorting store data", () => {
   it("includes new and edited records in filters and sort order", () => {
-    state().addTransaction({ type: "expense", amount: 999_000, date: "2026-01-05", description: "New laptop", accountId: "wallet", categoryId: "food" });
-    state().updateTransaction("txn-001", { type: "income", amount: 2_000_000, date: "2026-01-15", description: "Salary (edited)", accountId: "bank", categoryId: "salary" });
+    add({ type: "expense", amount: 999_000, date: "2026-01-05", description: "New laptop", accountId: "wallet", categoryId: "food" });
+    update("txn-001", { type: "income", amount: 2_000_000, date: "2026-01-15", description: "Salary (edited)", accountId: "bank", categoryId: "salary" });
 
     const filters = { search: "", type: "all", accountId: "all", categoryId: "all", month: "2026-01" } as const;
     const byAmount = sortTransactions(filterTransactions(state().transactions, filters, categories), "amount-desc");
@@ -193,5 +211,32 @@ describe("generateTransactionId", () => {
     expect(generateTransactionId([])).toBe("txn-001");
     expect(generateTransactionId([{ ...initial[0], id: "imported-7" }])).toBe("txn-001");
     expect(generateTransactionId([{ ...initial[0], id: "txn-041" }])).toBe("txn-042");
+  });
+});
+
+describe("validation at the action boundary", () => {
+  it("rejects invalid input without changing state", () => {
+    const before = state().transactions;
+    const result = state().addTransaction({ type: "expense", amount: 0, date: "2026-02-30", description: "x", accountId: "ghost", categoryId: "food" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.issues.map((i) => i.field).sort()).toEqual(["accountId", "amount", "date"]);
+    }
+    expect(state().transactions).toBe(before);
+  });
+
+  it("rejects same-account transfers and dates before an account opened", () => {
+    expect(state().addTransaction({ type: "transfer", amount: 1, date: "2026-01-05", description: "x", accountId: "bank", destinationAccountId: "bank" }).ok).toBe(false);
+    expect(state().addTransaction({ type: "expense", amount: 1, date: "2025-12-31", description: "x", accountId: "bank", categoryId: "food" }).ok).toBe(false);
+  });
+
+  it("rejects archived accounts for new transactions but keeps an edited transaction's own", () => {
+    const archived = [{ ...accounts[0], isActive: false }, accounts[1]];
+    const archivedStore = createTransactionStore(initial, { getAccounts: () => archived, getCategories: () => categories });
+    expect(archivedStore.getState().addTransaction({ type: "expense", amount: 1, date: "2026-01-05", description: "x", accountId: "bank", categoryId: "food" })).toMatchObject({
+      ok: false,
+      issues: [{ field: "accountId", message: "Bank is archived. Choose an active account." }],
+    });
+    expect(archivedStore.getState().updateTransaction("txn-002", { type: "expense", amount: 1, date: "2026-01-20", description: "Groceries", accountId: "bank", categoryId: "food" }).ok).toBe(true);
   });
 });

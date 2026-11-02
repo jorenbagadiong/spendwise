@@ -55,8 +55,10 @@ import {
 import { cn } from "@/lib/utils";
 import { useTransactionStore } from "@/stores/transaction-store-provider";
 import { getAccountLabel } from "@/lib/finance/accounts";
+import { getCategoryLabel } from "@/lib/finance/categories";
 import { useAccountStore } from "@/stores/account-store-provider";
-import type { Category, IsoDate, Transaction } from "@/types/finance";
+import { useCategoryStore } from "@/stores/category-store-provider";
+import type { IsoDate, Transaction } from "@/types/finance";
 
 const PAGE_SIZE = 10;
 
@@ -82,7 +84,6 @@ const sortOptions: { value: TransactionSort; label: string }[] = [
 type Option = { value: string; label: string };
 
 type TransactionsViewProps = {
-  categories: readonly Category[];
   /** Today in Asia/Manila, computed on the server so both renders agree. */
   today: IsoDate;
   /** Start filtered to this account across all months (from ?account=). */
@@ -90,12 +91,12 @@ type TransactionsViewProps = {
 };
 
 export function TransactionsView({
-  categories,
   today,
   initialAccountId,
 }: TransactionsViewProps) {
   // The same stores the dashboard reads, so changes appear on every page.
   const accounts = useAccountStore((state) => state.accounts);
+  const categories = useCategoryStore((state) => state.categories);
   const transactions = useTransactionStore((state) => state.transactions);
   const searchId = useId();
   const addButtonRef = useRef<HTMLButtonElement>(null);
@@ -146,9 +147,10 @@ export function TransactionsView({
   ];
   const categoryGroups = (["income", "expense"] as const).map((type) => ({
     label: type === "income" ? "Income" : "Expense",
+    // Archived categories stay listed so their history can be filtered.
     options: categories
       .filter((c) => c.type === type)
-      .map((c) => ({ value: c.id, label: c.name })),
+      .map((c) => ({ value: c.id, label: getCategoryLabel(c) })),
   }));
 
   function updateFilters(patch: Partial<TransactionFilters>) {
@@ -435,8 +437,6 @@ export function TransactionsView({
         open={formOpen}
         onOpenChange={setFormOpen}
         transaction={editing}
-        accounts={accounts}
-        categories={categories}
         today={today}
         onSaved={handleSaved}
       />

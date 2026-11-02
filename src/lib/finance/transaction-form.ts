@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { formatCentavosForInput, parsePesosToCentavos } from "@/lib/finance/money";
 import { isValidIsoDate } from "@/lib/finance/months";
-import { validateTransaction } from "@/lib/finance/validation";
+import { validateTransactionChange } from "@/lib/finance/validation";
 import type {
   Account,
   Category,
@@ -78,17 +78,15 @@ function toTransactionInput(
  * categories to check references, so it's created per form. The output is
  * a TransactionInput ready for the store.
  *
- * Pass `original` when editing: an archived account the transaction already
- * uses stays allowed, but nothing can be moved onto a different archived account.
+ * Pass `original` when editing: an archived account or category the
+ * transaction already uses stays allowed, but nothing can be moved onto a
+ * different archived one.
  */
 export function createTransactionFormSchema(
   accounts: readonly Account[],
   categories: readonly Category[],
   { original = null }: { original?: Transaction | null } = {},
 ) {
-  const originalAccountIds = new Set(
-    [original?.accountId, original?.destinationAccountId].filter(Boolean),
-  );
 
   return z
     .object({
@@ -134,19 +132,10 @@ export function createTransactionFormSchema(
 
       const input = toTransactionInput(values, amount.value);
 
-      // Shared business rules from SW-003 (existence, category type,
-      // opening dates, different transfer accounts).
-      for (const { field, message } of validateTransaction(input, accounts, categories)) {
+      // Shared rules (existence, types, opening dates, distinct transfer
+      // accounts, active status). The store checks the same rules.
+      for (const { field, message } of validateTransactionChange(input, accounts, categories, original)) {
         issue(field, message);
-      }
-      // Archived accounts can't receive new entries, except the ones this
-      // transaction already used before the edit.
-      for (const field of ["accountId", "destinationAccountId"] as const) {
-        if (field === "destinationAccountId" && values.type !== "transfer") continue;
-        const account = accounts.find((a) => a.id === values[field]);
-        if (account && !account.isActive && !originalAccountIds.has(account.id)) {
-          issue(field, `${account.name} is archived. Choose an active account.`);
-        }
       }
 
       return input;

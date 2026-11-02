@@ -36,11 +36,12 @@ import {
   type TransactionFormValues,
 } from "@/lib/finance/transaction-form";
 import { getAccountLabel, getSelectableAccounts } from "@/lib/finance/accounts";
+import { getCategoryLabel, getSelectableCategories } from "@/lib/finance/categories";
 import { cn } from "@/lib/utils";
+import { useAccountStore } from "@/stores/account-store-provider";
+import { useCategoryStore } from "@/stores/category-store-provider";
 import { useTransactionStore } from "@/stores/transaction-store-provider";
 import type {
-  Account,
-  Category,
   IsoDate,
   Transaction,
   TransactionInput,
@@ -51,8 +52,6 @@ type TransactionFormDialogProps = {
   onOpenChange: (open: boolean) => void;
   /** The transaction to edit, or null to add a new one. */
   transaction: Transaction | null;
-  accounts: readonly Account[];
-  categories: readonly Category[];
   today: IsoDate;
   onSaved: (transaction: Transaction, action: "added" | "updated") => void;
 };
@@ -96,8 +95,6 @@ const typeOptions = [
 
 function TransactionForm({
   transaction,
-  accounts,
-  categories,
   today,
   onSaved,
   onDone,
@@ -106,6 +103,10 @@ function TransactionForm({
   onDone: () => void;
   onCancel: () => void;
 }) {
+  // Accounts and categories come from their shared stores, so new, renamed,
+  // archived, and restored ones are reflected immediately.
+  const accounts = useAccountStore((state) => state.accounts);
+  const categories = useCategoryStore((state) => state.categories);
   const addTransaction = useTransactionStore((state) => state.addTransaction);
   const updateTransaction = useTransactionStore((state) => state.updateTransaction);
   const ids = {
@@ -132,9 +133,15 @@ function TransactionForm({
     value: a.id,
     label: getAccountLabel(a),
   }));
-  const categoryOptions = categories
-    .filter((c) => c.type === type)
-    .map((c) => ({ value: c.id, label: c.name }));
+  // Active categories of the selected type, plus the archived category this
+  // transaction already uses. Transfers have no category.
+  const categoryOptions =
+    type === "transfer"
+      ? []
+      : getSelectableCategories(categories, type, transaction).map((c) => ({
+          value: c.id,
+          label: getCategoryLabel(c),
+        }));
 
   function handleTypeChange(next: Transaction["type"]) {
     // Clear selections that don't apply to the new type.
@@ -145,18 +152,16 @@ function TransactionForm({
   }
 
   function onSubmit(input: TransactionInput) {
-    if (transaction) {
-      const updated = updateTransaction(transaction.id, input);
-      if (!updated) {
-        setError("root", {
-          message: "This transaction no longer exists. It may have been deleted.",
-        });
-        return;
-      }
-      onSaved(updated, "updated");
-    } else {
-      onSaved(addTransaction(input), "added");
+    // The store re-checks everything; show anything it rejects inline.
+    const result = transaction
+      ? updateTransaction(transaction.id, input)
+      : addTransaction(input);
+    if (!result.ok) {
+      if (result.issues.length === 0) setError("root", { message: result.error });
+      for (const { field, message } of result.issues) setError(field, { message });
+      return;
     }
+    onSaved(result.transaction, transaction ? "updated" : "added");
     onDone();
   }
 
@@ -173,7 +178,7 @@ function TransactionForm({
               <label
                 key={option.value}
                 className={cn(
-                  "flex cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground transition-colors",
+                  "relative flex cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground transition-colors",
                   "has-checked:bg-background has-checked:text-foreground has-checked:shadow-sm",
                   "has-focus-visible:ring-3 has-focus-visible:ring-ring/50",
                 )}

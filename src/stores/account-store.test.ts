@@ -16,8 +16,8 @@ const initialAccounts: Account[] = [
   { id: "wallet", name: "Wallet", type: "cash", openingBalance: 50_000, openingDate: "2026-01-01", isActive: true },
 ];
 const categories: Category[] = [
-  { id: "salary", name: "Salary", type: "income", icon: "briefcase" },
-  { id: "food", name: "Food", type: "expense", icon: "utensils" },
+  { id: "salary", name: "Salary", type: "income", icon: "briefcase", color: "slate", isActive: true },
+  { id: "food", name: "Food", type: "expense", icon: "utensils", color: "slate", isActive: true },
 ];
 const initialTransactions: Transaction[] = [
   { id: "txn-001", type: "income", amount: 2_000_000, date: "2026-01-15", description: "Salary", accountId: "bank", categoryId: "salary" },
@@ -138,7 +138,10 @@ describe("archive and restore", () => {
 });
 
 describe("accounts with transactions", () => {
-  const transactions = createTransactionStore(initialTransactions);
+  const transactions = createTransactionStore(initialTransactions, {
+    getAccounts: () => state().accounts,
+    getCategories: () => categories,
+  });
   const txns = () => transactions.getState().transactions;
 
   it("leaves transactions untouched when accounts change", () => {

@@ -3,6 +3,8 @@
 import { createContext, useContext, useState } from "react";
 import { useStore } from "zustand";
 
+import { useAccountStoreApi } from "@/stores/account-store-provider";
+import { useCategoryStoreApi } from "@/stores/category-store-provider";
 import {
   createTransactionStore,
   type TransactionStore,
@@ -25,7 +27,16 @@ export function TransactionStoreProvider({
   initialTransactions: readonly Transaction[];
   children: React.ReactNode;
 }) {
-  const [store] = useState(() => createTransactionStore(initialTransactions));
+  // Must be inside the account and category providers: the store checks
+  // transaction references against them.
+  const accountStore = useAccountStoreApi();
+  const categoryStore = useCategoryStoreApi();
+  const [store] = useState(() =>
+    createTransactionStore(initialTransactions, {
+      getAccounts: () => accountStore.getState().accounts,
+      getCategories: () => categoryStore.getState().categories,
+    }),
+  );
   return (
     <TransactionStoreContext.Provider value={store}>
       {children}

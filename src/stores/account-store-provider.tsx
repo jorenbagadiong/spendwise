@@ -30,11 +30,16 @@ export function AccountStoreProvider({
   );
 }
 
-/** Reads from the account store; select only what the component needs. */
-export function useAccountStore<T>(selector: (state: AccountStore) => T): T {
+/** The store itself, for other stores that need to read accounts. */
+export function useAccountStoreApi(): AccountStoreApi {
   const store = useContext(AccountStoreContext);
   if (!store) {
-    throw new Error("useAccountStore must be used inside AccountStoreProvider.");
+    throw new Error("Account store used outside AccountStoreProvider.");
   }
-  return useStore(store, selector);
+  return store;
+}
+
+/** Reads from the account store; select only what the component needs. */
+export function useAccountStore<T>(selector: (state: AccountStore) => T): T {
+  return useStore(useAccountStoreApi(), selector);
 }

@@ -8,8 +8,8 @@ const accounts: Account[] = [
   { id: "wallet", name: "Wallet", type: "cash", openingBalance: 0, openingDate: "2026-01-01", isActive: true },
 ];
 const categories: Category[] = [
-  { id: "salary", name: "Salary", type: "income", icon: "briefcase" },
-  { id: "food", name: "Food", type: "expense", icon: "utensils" },
+  { id: "salary", name: "Salary", type: "income", icon: "briefcase", color: "slate", isActive: true },
+  { id: "food", name: "Food", type: "expense", icon: "utensils", color: "slate", isActive: true },
 ];
 
 const validate = (t: Transaction) => validateTransaction(t, accounts, categories);
